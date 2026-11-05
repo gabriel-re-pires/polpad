@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polpad"
+version = "0.4.1"
+description = "Polpad — software de configuração do macropad ESP32-C3"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Artur Morais Brasileiro" },
+    { name = "Gabriel Rezende Pires" },
+]
+dependencies = [
+    "PySide6>=6.8",
+    "pyserial>=3.5",
+    "pynput>=1.7",
+    # Linux: detecção do app em foco (o pynput já o usa no backend xorg).
+    "python-xlib>=0.33; sys_platform == 'linux'",
+    "pillow>=10.0",
+    "requests>=2.31",
+    "obsws-python>=1.7",
+    "keyring>=24",
+    # Gravação do firmware pela própria interface. A partir da 5.0 o esptool
+    # expõe TemplateLogger, usado para levar progresso e log ao diálogo.
+    "esptool>=5.0",
+]
+
+[project.optional-dependencies]
+# Ferramentas de desenvolvimento: .venv\Scripts\python -m pip install -e ".[dev]"
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+polpad = "polpad.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ícones do aplicativo (ui/app_icon.py os carrega em tempo de execução).
+[tool.setuptools.package-data]
+polpad = ["ui/assets/*.png", "ui/assets/*.ico"]
+
+# ----------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 90
+target-version = "py311"
+src = ["src", "tests"]
+# Rascunho do artigo: fora do repositório e fora do lint.
+extend-exclude = ["docs/artigo"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",    # avisos do pycodestyle
+    "F",    # pyflakes (imports/variáveis não usados, nomes indefinidos)
+    "I",    # ordenação de imports
+    "UP",   # construções obsoletas para a versão de Python alvo
+    "B",    # bugbear (armadilhas comuns)
+    "SIM",  # simplificações
+    "N",    # convenções de nome (PEP 8)
+    "S",    # bandit: relevante porque o app executa comandos e faz HTTP
+    "RUF",  # regras próprias do ruff
+]
+ignore = [
+    # O texto do projeto é em português e usa travessão (– e —)
+    # intencionalmente; o ruff os confunde com hífen ASCII.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Credenciais fictícias usadas para montar objetos de teste.
+"tests/*" = ["S105", "S106"]
+# Scripts de build: chamam ferramentas com argumentos escritos no próprio
+# arquivo (S603) e precisam definir QT_QPA_PLATFORM antes de importar Qt (E402).
+"tools/*" = ["S603", "E402"]
+
+# ----------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+ignore_missing_imports = true      # pynput/pyserial/obsws-python sem stubs
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# warn_unreachable fica desligado: o mypy assume a plataforma atual e marca
+# como inalcançável todo ramo `if sys.platform == ...` do outro sistema.
+
+# A camada Qt usa o atalho de enums do PySide6 (Qt.AlignHCenter em vez de
+# Qt.AlignmentFlag.AlignHCenter) — válido em tempo de execução, mas ausente
+# das stubs — e o editor de ações monta páginas anexando atributos a
+# QWidget. As camadas de domínio, que a arquitetura mantém livres de Qt,
+# seguem verificadas integralmente.
+[[tool.mypy.overrides]]
+module = "polpad.ui.*"
+disable_error_code = ["attr-defined"]

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+# Gerado pelo tools/build_exe.py a cada execução.
+*.spec
+.mypy_cache/
+.ruff_cache/
+# Rascunho do artigo: fica fora do repositório até a publicação.
+docs/artigo/

@@ -1,0 +1,184 @@
+# Gera o Polpad para Windows e Linux e anexa os dois ao release.
+#
+# * Tag vX.Y.Z enviada (git push origin v0.5.0): testa, gera os dois
+#   executáveis, confere que eles abrem e os anexa ao release da tag. Se o
+#   release ainda não existe, cria um RASCUNHO com eles: escreva as notas,
+#   anexe o firmware-*.bin e publique. (O aplicativo baixa o firmware do
+#   último release publicado; um rascunho não aparece para ele.)
+# * Execução manual (aba Actions → Executáveis → Run workflow) ou PR que
+#   mexe no empacotamento: só gera os executáveis, para baixar em
+#   "Artifacts" e testar. Não mexe nos releases.
+#
+# O PyInstaller não gera executável para outro sistema: cada um sai de um
+# runner do próprio sistema.
+
+name: Executáveis
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  # Quebrar o empacotamento só apareceria na hora do release; assim aparece
+  # no PR que causou a quebra.
+  pull_request:
+    paths:
+      - .github/workflows/executaveis.yml
+      - tools/build_exe.py
+      - tools/entrypoint.py
+      - pyproject.toml
+
+permissions:
+  contents: read
+
+# Duas execuções da mesma tag disputariam os anexos do release.
+concurrency:
+  group: executaveis-${{ github.ref }}
+
+jobs:
+  build:
+    name: ${{ matrix.nome }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nome: Windows
+            os: windows-latest
+            arquivo: Polpad.exe
+          - nome: Linux
+            # A glibc do sistema em que o executável é gerado é a mínima que
+            # ele exige. O 22.04 (glibc 2.35) cobre Ubuntu 22.04+, Debian 12,
+            # Fedora e Arch atuais; gerar no 24.04 deixaria o 22.04 de fora.
+            os: ubuntu-22.04
+            arquivo: Polpad-linux-x86_64.tar.gz
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Conferir a versão com a tag
+        if: github.ref_type == 'tag'
+        run: python tools/conferir_versao.py "$GITHUB_REF_NAME"
+
+      - name: Bibliotecas do sistema (Linux)
+        if: runner.os == 'Linux'
+        # O Qt precisa delas para abrir janelas no X11, e o PyInstaller embute
+        # as que encontra: sem a libxcb-cursor0 aqui, o executável não abriria
+        # num Ubuntu que não a tenha instalada. O Xvfb é a tela dos testes
+        # (o pynput exige um servidor X).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libegl1 libdbus-1-3 libfontconfig1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
+            libxcb-xinerama0 libxcb-xkb1
+
+      - name: Instalar dependências
+        run: python -m pip install -e ".[dev]"
+
+      - name: Testes
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a python -m unittest discover -t . -v
+          else
+            python -m unittest discover -t . -v
+          fi
+
+      - name: Gerar o executável
+        run: python tools/build_exe.py
+
+      - name: Conferir que o executável abre (Linux)
+        if: runner.os == 'Linux'
+        # Sem QT_QPA_PLATFORM: abre de verdade no X (Xvfb), o que confere
+        # também as bibliotecas xcb embutidas. Continuar rodando até o
+        # timeout (código 124) é o esperado; sair antes é falha.
+        run: |
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/config"
+          status=0
+          xvfb-run -a timeout 20 ./dist/Polpad || status=$?
+          if [ "$status" -ne 124 ]; then
+            echo "::error::o Polpad fechou sozinho (código $status)"
+            cat "$XDG_CONFIG_HOME"/Polpad/logs/polpad.log || true
+            exit 1
+          fi
+
+      - name: Conferir que o executável abre (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:APPDATA = "$env:RUNNER_TEMP\config"
+          $p = Start-Process -FilePath dist\Polpad.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) {
+            Get-Content "$env:APPDATA\Polpad\logs\polpad.log" -ErrorAction SilentlyContinue
+            Write-Error "o Polpad fechou sozinho (código $($p.ExitCode))"
+            exit 1
+          }
+          Stop-Process -Id $p.Id -Force
+
+      - name: Empacotar (Linux)
+        if: runner.os == 'Linux'
+        # O .tar.gz preserva a permissão de execução, que um download
+        # direto do navegador perderia.
+        run: tar -czf "${{ matrix.arquivo }}" -C dist Polpad
+
+      - name: Empacotar (Windows)
+        if: runner.os == 'Windows'
+        run: cp dist/Polpad.exe "${{ matrix.arquivo }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Polpad-${{ matrix.nome }}
+          path: ${{ matrix.arquivo }}
+          if-no-files-found: error
+
+  release:
+    name: Anexar ao release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: pacotes
+          merge-multiple: true
+
+      - name: Anexar os executáveis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l pacotes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release criado à mão (ou execução repetida): só troca os anexos.
+            gh release upload "$TAG" pacotes/* --clobber
+          else
+            gh release create "$TAG" pacotes/* --draft --verify-tag \
+              --title "Polpad ${TAG#v}" \
+              --notes "$(cat <<'NOTAS'
+          Rascunho criado pelo workflow **Executáveis**. Antes de publicar,
+          escreva as novidades e anexe o `firmware-*.bin`: o aplicativo grava o
+          firmware do último release publicado.
+
+          ## Arquivos
+
+          - `Polpad.exe` — Windows 10/11. Arquivo único, sem instalar nada.
+          - `Polpad-linux-x86_64.tar.gz` — Linux (X11, x86-64). Extraia e abra
+            o `Polpad`.
+          NOTAS
+          )"
+          fi

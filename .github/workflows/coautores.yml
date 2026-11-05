@@ -1,0 +1,53 @@
+# Confere a autoria de cada commit (e a descrição do PR) com a mesma regra
+# do .githooks/commit-msg: coautores só da lista .github/coautores e nenhuma
+# assinatura automática. Pega quem não ativou o hook na própria máquina.
+
+name: Coautores
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Conferir autoria
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mensagens dos commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            commits=$(git rev-list "$HEAD")
+          else
+            commits=$(git rev-list "$BASE..$HEAD")
+          fi
+          falhou=0
+          for c in $commits; do
+            git log -1 --format=%B "$c" > "$RUNNER_TEMP/mensagem"
+            if ! sh .githooks/commit-msg "$RUNNER_TEMP/mensagem"; then
+              echo "::error::autoria não permitida no commit $c"
+              falhou=1
+            fi
+          done
+          exit $falhou
+
+      - name: Título e descrição do PR
+        if: github.event_name == 'pull_request'
+        env:
+          TITULO: ${{ github.event.pull_request.title }}
+          CORPO: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n\n%s\n' "$TITULO" "$CORPO" > "$RUNNER_TEMP/pr"
+          sh .githooks/commit-msg "$RUNNER_TEMP/pr" \
+            || { echo "::error::autoria não permitida na descrição do PR"; exit 1; }

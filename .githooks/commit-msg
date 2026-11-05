@@ -1,0 +1,40 @@
+#!/bin/sh
+# Só aceita coautores da lista .github/coautores (um e-mail por linha) e
+# recusa assinaturas automáticas do tipo "Generated with ...".
+#
+# Ativar no clone: git config core.hooksPath .githooks
+# Novo coautor:    acrescente o e-mail dele em .github/coautores.
+#
+# O workflow "Coautores" roda este mesmo arquivo sobre cada commit de um PR
+# e do main, para quem não ativou o hook.
+
+mensagem="$1"
+raiz=$(cd "$(dirname "$0")/.." && pwd)
+lista="$raiz/.github/coautores"
+falhou=0
+
+# Linhas começadas por "#" são comentários que o git descarta.
+corpo=$(grep -v '^#' "$mensagem")
+
+coautores=$(printf '%s\n' "$corpo" | grep -i '^[[:space:]]*co-authored-by:')
+if [ -n "$coautores" ]; then
+    printf '%s\n' "$coautores" | while IFS= read -r linha; do
+        email=$(printf '%s' "$linha" | sed -n 's/.*<\([^>]*\)>.*/\1/p' | tr 'A-Z' 'a-z')
+        # Lista em minúsculas e sem \r (arquivo editado no Windows); grep -i
+        # junto com -x -F trava no grep do Git para Windows.
+        if [ -z "$email" ] || ! tr -d '\r' < "$lista" 2>/dev/null \
+                | tr 'A-Z' 'a-z' | grep -qxF "$email"; then
+            echo "Coautor fora da lista .github/coautores: $linha" >&2
+            exit 1
+        fi
+    done || falhou=1
+fi
+
+if printf '%s\n' "$corpo" | grep -Eiq '^[^[:alnum:]]*generated (with|by) '; then
+    echo "Assinatura automática na mensagem:" >&2
+    printf '%s\n' "$corpo" | grep -Ei '^[^[:alnum:]]*generated (with|by) ' | sed 's/^/    /' >&2
+    falhou=1
+fi
+
+[ "$falhou" = 0 ] || echo "Commit recusado." >&2
+exit "$falhou"

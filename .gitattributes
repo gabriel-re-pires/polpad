@@ -1,0 +1,15 @@
+# Normaliza fins de linha no repositório (LF), preservando CRLF no
+# working copy do Windows. Evita diffs de arquivo inteiro quando duas
+# pessoas editam em ambientes diferentes.
+* text=auto eol=lf
+
+# Arquivos que precisam de CRLF para funcionar no Windows.
+*.bat text eol=crlf
+
+# Scripts de shell quebram com CRLF ("/bin/sh^M: bad interpreter").
+*.sh text eol=lf
+
+# Binários: nunca converter.
+*.png binary
+*.jpg binary
+*.ico binary
