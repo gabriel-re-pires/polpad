@@ -191,10 +191,10 @@ def _run_esptool(
 
     logger_class = _callback_logger_class()
     with _swap_lock:
-        previous_class = type(esptool_log)
+        restore = _snapshot_logger(esptool_log)
         logger_class.bind(on_log, on_progress, cancel)
-        esptool_log.set_logger(logger_class())
         try:
+            esptool_log.set_logger(logger_class())
             esptool.main(argv)
         except FlashCancelledError:
             raise
@@ -203,8 +203,44 @@ def _run_esptool(
         except Exception as exc:
             raise FlashError(_describe(exc)) from exc
         finally:
-            esptool_log.__class__ = previous_class
+            restore()
             logger_class.bind(None, None, None)
+
+
+def _snapshot_logger(esptool_log: Any) -> Callable[[], None]:
+    """Guarda o logger ativo do esptool e devolve a função que o restaura.
+
+    O mecanismo mudou entre versões do esptool:
+
+    * **5.0 a 5.x antigas:** ``log`` é a própria instância de
+      ``EsptoolLogger`` e ``set_logger`` troca a sua *classe*; restaurar é
+      devolver a classe original.
+    * **Com esp-pylib (5.6+):** ``log`` é um *proxy* que lê
+      ``EspLog.instance``, e ``set_logger`` troca essa instância por um
+      ``_LegacyLoggerAdapter`` — que não tem ``set_logger``. Restaurar a
+      classe do proxy não desfaz nada, e a gravação seguinte falhava com
+      ``'_LegacyLoggerAdapter' object has no attribute 'set_logger'``.
+      Aqui o que se guarda e devolve é a instância.
+    """
+    try:
+        from esp_pylib.logger import EspLog
+    except ImportError:
+        EspLog = None  # noqa: N806 - nome da classe importada
+
+    if EspLog is not None and not hasattr(type(esptool_log), "set_logger"):
+        previous_instance = EspLog.instance
+
+        def restore() -> None:
+            EspLog.instance = previous_instance
+
+        return restore
+
+    previous_class = type(esptool_log)
+
+    def restore_class() -> None:
+        esptool_log.__class__ = previous_class
+
+    return restore_class
 
 
 def _describe(exc: BaseException) -> str:
