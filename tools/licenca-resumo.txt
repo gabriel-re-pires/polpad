@@ -1,0 +1,18 @@
+Polpad — software livre
+Copyright (C) 2026 Gabriel Rezende Pires e Artur Morais Brasileiro
+
+O Polpad é distribuído sob a Licença Pública Geral GNU, versão 3 (GPL v3).
+Em resumo:
+
+  - Você pode usar o Polpad para qualquer finalidade, inclusive comercial.
+  - Você pode estudar e modificar o código-fonte, disponível em
+    https://github.com/gabriel-re-pires/polpad
+  - Você pode redistribuir cópias, modificadas ou não, desde que sob a
+    mesma licença e junto com o código-fonte.
+  - O Polpad é fornecido sem garantia de qualquer tipo.
+
+Este resumo não substitui a licença. O texto oficial, em inglês, vem a
+seguir.
+
+------------------------------------------------------------------------
+

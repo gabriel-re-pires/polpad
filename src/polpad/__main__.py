@@ -41,6 +41,7 @@ def main() -> int:
     from .ui.main_window import MainWindow
     from .ui.style import build_stylesheet
     from .ui.update_controller import UpdateController, safe_startup
+    from .update import installer_options
 
     log_path = logs.setup()
     logging.getLogger(__name__).info(
@@ -80,6 +81,10 @@ def main() -> int:
         return 0
 
     core = MacropadApp()
+    # Escolhas do instalador (iniciar com o Windows, aviso de versão nova):
+    # aplicadas antes da janela, que grava a inicialização automática.
+    if installer_options.apply(core.store.data_dir, core.store.settings):
+        core.store.save()
     window = MainWindow(core)
     updates = UpdateController(
         core.store,

@@ -165,12 +165,17 @@ def main() -> int:
         raise SystemExit("o PyInstaller terminou sem produzir o executável")
     print(f"\nPronto: {exe}")
     if iscc is not None:
+        licenca = _licenca()
+        grande, pequena = _imagens_do_assistente()
         _run(
             [
                 iscc,
                 f"/DVersao={_versao()}",
                 f"/DOrigem={destino / NOME}",
                 f"/DIcone={ICONE}",
+                f"/DLicenca={licenca}",
+                f"/DImagemGrande={grande}",
+                f"/DImagemPequena={pequena}",
                 f"/O{destino}",
                 str(RAIZ / "tools" / "polpad.iss"),
             ],
@@ -181,6 +186,53 @@ def main() -> int:
     if not WINDOWS:
         print("Para pôr no menu: dist/Polpad --instalar-no-menu")
     return 0
+
+
+def _licenca() -> Path:
+    """Resumo em português seguido do texto oficial da GPL v3.
+
+    UTF-8 com BOM: é como o Inno Setup reconhece o texto acentuado.
+    """
+    resumo = (RAIZ / "tools" / "licenca-resumo.txt").read_text(encoding="utf-8")
+    gpl = (RAIZ / "LICENSE").read_text(encoding="utf-8")
+    destino = RAIZ / "build" / "licenca.txt"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(resumo + gpl, encoding="utf-8-sig")
+    return destino
+
+
+def _imagens_do_assistente() -> tuple[str, str]:
+    """Imagens do assistente de instalação, em 100% e 200% de escala.
+
+    A grande (164x314) fica à esquerda nas páginas de boas-vindas e de
+    conclusão, com o polvo sobre o fundo escuro da janela do Polpad; a
+    pequena (55x55) fica no canto das outras páginas, sobre o branco do
+    cabeçalho. O Inno Setup lê BMP de 24 bits.
+    """
+    from PIL import Image
+
+    polvo = Image.open(RAIZ / "src" / "polpad" / "ui" / "assets" / "polvo-roxo-256.png")
+    polvo = polvo.convert("RGBA")
+    pasta = RAIZ / "build"
+    grandes, pequenas = [], []
+    for escala in (1, 2):
+        largura, altura = 164 * escala, 314 * escala
+        fundo = Image.new("RGBA", (largura, altura), (12, 13, 17, 255))
+        lado = int(largura * 0.72)
+        icone = polvo.resize((lado, lado), Image.LANCZOS)
+        fundo.alpha_composite(icone, ((largura - lado) // 2, int(altura * 0.30)))
+        caminho = pasta / f"assistente-grande-{escala}x.bmp"
+        fundo.convert("RGB").save(caminho)
+        grandes.append(str(caminho))
+
+        lado_p = 55 * escala
+        fundo_p = Image.new("RGBA", (lado_p, lado_p), (255, 255, 255, 255))
+        icone_p = polvo.resize((lado_p - 6 * escala,) * 2, Image.LANCZOS)
+        fundo_p.alpha_composite(icone_p, (3 * escala, 3 * escala))
+        caminho_p = pasta / f"assistente-pequena-{escala}x.bmp"
+        fundo_p.convert("RGB").save(caminho_p)
+        pequenas.append(str(caminho_p))
+    return ",".join(grandes), ",".join(pequenas)
 
 
 def _versao() -> str:
