@@ -44,10 +44,13 @@ e `./run.sh`.
 .venv\Scripts\python tools\build_exe.py --instalador
 ```
 
-No Windows gera a pasta `dist\Polpad\` e o instalador `dist\Polpad-Setup.exe`
-(precisa do Inno Setup 6: `winget install JRSoftware.InnoSetup`). No Linux,
-`.venv/bin/python tools/build_exe.py` gera `dist/Polpad`, e
-`dist/Polpad --instalar-no-menu` o põe no menu de aplicativos.
+Cada sistema tem a sua pasta dentro de `dist`:
+
+| Pasta | O que tem |
+|---|---|
+| `dist/windows/` | o programa (`Polpad/`) e o instalador `Polpad-Windows-Instalador.exe` (precisa do Inno Setup 6: `winget install JRSoftware.InnoSetup`) |
+| `dist/linux/` | o executável `Polpad` (gerado num Linux; `dist/linux/Polpad --instalar-no-menu` o põe no menu) |
+| `dist/firmware/` | o firmware do macropad, gerado pelo `tools/merge_firmware.py` |
 
 ## Versões
 
@@ -76,8 +79,8 @@ Números `MAJOR.MINOR.PATCH`, na sequência iniciada em 0.1.0:
    ```
 
 3. O workflow **Executáveis** testa nos dois sistemas, confere que a tag
-   bate com a versão do código, gera `Polpad-Setup.exe` e
-   `Polpad-linux-x86_64.tar.gz`, confere que os dois instalam e abrem e cria
+   bate com a versão do código, gera `Polpad-Windows-Instalador.exe` e
+   `Polpad-Linux-x86_64.tar.gz`, confere que os dois instalam e abrem e cria
    um **rascunho** de release com eles e o `SHA256SUMS.txt`.
 4. No rascunho, escreva as novidades, anexe o `firmware-*.bin` se houver
    firmware novo e publique como **pré-lançamento**. Assim dá para baixar e

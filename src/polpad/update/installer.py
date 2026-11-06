@@ -24,7 +24,8 @@ from .state import updates_dir
 log = logging.getLogger(__name__)
 
 ELF_MAGIC = b"\x7fELF"
-LINUX_MEMBER = "Polpad"
+# Desde a 0.6.0 o executável vem na pasta Polpad-Linux; antes, solto.
+LINUX_MEMBERS = ("Polpad-Linux/Polpad", "Polpad")
 _NEW_NAME = ".polpad.novo"
 
 
@@ -117,8 +118,9 @@ def swap_linux(package: Path, target: Path) -> None:
     new = target.parent / _NEW_NAME
     try:
         with tarfile.open(package, "r:gz") as tar:
-            member = tar.getmember(LINUX_MEMBER)
-            source = tar.extractfile(member)
+            names = set(tar.getnames())
+            member = next((m for m in LINUX_MEMBERS if m in names), LINUX_MEMBERS[-1])
+            source = tar.extractfile(tar.getmember(member))
             if source is None:
                 raise InstallError("O pacote não contém o executável do Polpad.")
             with source, new.open("wb") as handle:

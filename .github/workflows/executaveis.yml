@@ -41,13 +41,15 @@ jobs:
         include:
           - nome: Windows
             os: windows-latest
-            arquivo: Polpad-Setup.exe
+            arquivo: Polpad-Windows-Instalador.exe
+            antigo: Polpad-Setup.exe
           - nome: Linux
             # A glibc do sistema em que o executável é gerado é a mínima que
             # ele exige. O 22.04 (glibc 2.35) cobre Ubuntu 22.04+, Debian 12,
             # Fedora e Arch atuais; gerar no 24.04 deixaria o 22.04 de fora.
             os: ubuntu-22.04
-            arquivo: Polpad-linux-x86_64.tar.gz
+            arquivo: Polpad-Linux-x86_64.tar.gz
+            antigo: Polpad-linux-x86_64.tar.gz
     defaults:
       run:
         shell: bash
@@ -114,7 +116,7 @@ jobs:
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/config"
           status=0
-          xvfb-run -a timeout 20 ./dist/Polpad || status=$?
+          xvfb-run -a timeout 20 ./dist/linux/Polpad || status=$?
           if [ "$status" -ne 124 ]; then
             echo "::error::o Polpad fechou sozinho (código $status)"
             cat "$XDG_CONFIG_HOME"/Polpad/logs/polpad.log || true
@@ -126,7 +128,7 @@ jobs:
         run: |
           casa="$RUNNER_TEMP/casa"
           mkdir -p "$casa"
-          HOME="$casa" XDG_DATA_HOME= ./dist/Polpad --instalar-no-menu
+          HOME="$casa" XDG_DATA_HOME= ./dist/linux/Polpad --instalar-no-menu
           test -x "$casa/.local/bin/polpad"
           grep -q "^Exec=$casa/.local/bin/polpad" \
             "$casa/.local/share/applications/polpad.desktop"
@@ -143,10 +145,11 @@ jobs:
           export XDG_CONFIG_HOME="$RUNNER_TEMP/config-troca"
           dados="$XDG_CONFIG_HOME/Polpad"
           mkdir -p "$dados/updates/v9.9.9" "$RUNNER_TEMP/troca"
-          cp dist/Polpad "$RUNNER_TEMP/troca/Polpad"
-          tar -czf "$dados/updates/v9.9.9/Polpad-linux-x86_64.tar.gz" \
-            -C dist Polpad
-          pacote="$dados/updates/v9.9.9/Polpad-linux-x86_64.tar.gz"
+          cp dist/linux/Polpad "$RUNNER_TEMP/troca/Polpad"
+          mkdir -p "$RUNNER_TEMP/pacote/Polpad-Linux"
+          cp dist/linux/Polpad "$RUNNER_TEMP/pacote/Polpad-Linux/Polpad"
+          pacote="$dados/updates/v9.9.9/Polpad-Linux-x86_64.tar.gz"
+          tar -czf "$pacote" -C "$RUNNER_TEMP/pacote" Polpad-Linux
           soma=$(sha256sum "$pacote" | cut -d' ' -f1)
           printf '{"last_check": null, "pending": {"version": "9.9.9", "path": "%s", "sha256": "%s"}, "switch": null}' \
             "$pacote" "$soma" > "$dados/updates/estado.json"
@@ -167,7 +170,7 @@ jobs:
         shell: pwsh
         run: |
           $pasta = Join-Path $env:RUNNER_TEMP "pp"
-          $inst = Start-Process -FilePath "dist/Polpad-Setup.exe" -Wait -PassThru `
+          $inst = Start-Process -FilePath "dist/windows/Polpad-Windows-Instalador.exe" -Wait -PassThru `
             -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$pasta`""
           if ($inst.ExitCode -ne 0) { Write-Error "instalação falhou ($($inst.ExitCode))"; exit 1 }
           $exe = Join-Path $pasta "Polpad.exe"
@@ -191,17 +194,27 @@ jobs:
       - name: Empacotar (Linux)
         if: runner.os == 'Linux'
         # O .tar.gz preserva a permissão de execução, que um download
-        # direto do navegador perderia.
-        run: tar -czf "${{ matrix.arquivo }}" -C dist Polpad
+        # direto do navegador perderia. O de nome antigo, com o executável
+        # solto, é o que a 0.5.0 sabe instalar (sai depois da 0.6.0).
+        run: |
+          mkdir -p pacote/Polpad-Linux
+          cp dist/linux/Polpad pacote/Polpad-Linux/Polpad
+          cp tools/LEIA-ME-linux.txt pacote/Polpad-Linux/LEIA-ME.txt
+          tar -czf "${{ matrix.arquivo }}" -C pacote Polpad-Linux
+          tar -czf "${{ matrix.antigo }}" -C dist/linux Polpad
 
       - name: Empacotar (Windows)
         if: runner.os == 'Windows'
-        run: cp dist/Polpad-Setup.exe "${{ matrix.arquivo }}"
+        run: |
+          cp dist/windows/Polpad-Windows-Instalador.exe "${{ matrix.arquivo }}"
+          cp dist/windows/Polpad-Windows-Instalador.exe "${{ matrix.antigo }}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: Polpad-${{ matrix.nome }}
-          path: ${{ matrix.arquivo }}
+          path: |
+            ${{ matrix.arquivo }}
+            ${{ matrix.antigo }}
           if-no-files-found: error
 
   release:
@@ -220,7 +233,7 @@ jobs:
       - name: Somas SHA-256
         working-directory: pacotes
         run: |
-          sha256sum Polpad-Setup.exe Polpad-linux-x86_64.tar.gz > SHA256SUMS.txt
+          sha256sum Polpad-*.exe Polpad-*.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Anexar os arquivos
@@ -244,9 +257,12 @@ jobs:
 
           ## Arquivos
 
-          - `Polpad-Setup.exe` — instalador do Windows 10/11.
-          - `Polpad-linux-x86_64.tar.gz` — Linux (X11, x86-64). Extraia e abra
-            o `Polpad`; ele se oferece para entrar no menu de aplicativos.
+          - `Polpad-Windows-Instalador.exe` — instalador do Windows 10/11.
+          - `Polpad-Linux-x86_64.tar.gz` — Linux (X11, x86-64). Extraia e abra
+            o `Polpad` da pasta `Polpad-Linux`; ele se oferece para entrar no
+            menu de aplicativos.
+          - `Polpad-Setup.exe` e `Polpad-linux-x86_64.tar.gz` — os mesmos, com
+            os nomes antigos, para a 0.5.0 se atualizar.
           - `SHA256SUMS.txt` — somas que o Polpad confere antes de instalar.
           NOTAS
           )"

@@ -1,0 +1,14 @@
+Polpad para Linux
+
+Para abrir: dê dois cliques em "Polpad" ou rode ./Polpad no terminal.
+
+Na primeira vez, o Polpad pergunta se quer entrar no menu de aplicativos.
+Escolhendo "Instalar", ele vai para a sua pasta pessoal (~/.local) e não
+precisa de senha. Depois disso, esta pasta pode ser apagada.
+
+Se o macropad aparecer como desconectado, clique em "Liberar acesso": o
+sistema pede a senha de administrador uma única vez para liberar a porta USB.
+
+Para desinstalar: Configurações > Zona de risco > Desinstalar.
+
+https://github.com/gabriel-re-pires/polpad

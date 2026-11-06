@@ -13,8 +13,13 @@ from typing import Any
 
 from . import github
 
-WINDOWS_ASSET = "Polpad-Setup.exe"
-LINUX_ASSET = "Polpad-linux-x86_64.tar.gz"
+WINDOWS_ASSET = "Polpad-Windows-Instalador.exe"
+LINUX_ASSET = "Polpad-Linux-x86_64.tar.gz"
+# Nomes até a 0.5.0: ainda aceitos, para instalar essas versões.
+LEGACY_ASSETS = {
+    WINDOWS_ASSET: "Polpad-Setup.exe",
+    LINUX_ASSET: "Polpad-linux-x86_64.tar.gz",
+}
 SUMS_ASSET = "SHA256SUMS.txt"
 
 
@@ -59,7 +64,13 @@ def list_releases(
     result = []
     for payload in github.published_releases(session):
         assets = payload.get("assets") or []
+        found = name
         asset = _asset(assets, name)
+        if asset is None:
+            found = LEGACY_ASSETS[name]
+            asset = _asset(assets, found)
+            if asset is None:
+                found = name
         sums = _asset(assets, SUMS_ASSET)
         tag = str(payload.get("tag_name") or "")
         result.append(
@@ -70,7 +81,7 @@ def list_releases(
                 notes=str(payload.get("body") or ""),
                 published_at=str(payload.get("published_at") or ""),
                 html_url=str(payload.get("html_url") or ""),
-                asset_name=name,
+                asset_name=found,
                 asset_url=str(asset["browser_download_url"]) if asset else None,
                 asset_size=int(asset.get("size") or 0) if asset else 0,
                 sums_url=str(sums["browser_download_url"]) if sums else None,

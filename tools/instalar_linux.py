@@ -1,6 +1,6 @@
 """Põe o Polpad no menu de aplicativos do Linux (só para o usuário atual).
 
-    .venv/bin/python tools/instalar_linux.py             # instala dist/Polpad
+    .venv/bin/python tools/instalar_linux.py             # instala dist/linux/Polpad
     .venv/bin/python tools/instalar_linux.py --remover   # desfaz
 
 A lógica fica em ``polpad.update.linux_install``, a mesma que o executável
@@ -24,8 +24,8 @@ def main() -> int:
     parser.add_argument(
         "--executavel",
         type=Path,
-        default=RAIZ / "dist" / "Polpad",
-        help="executável a instalar (padrão: dist/Polpad)",
+        default=RAIZ / "dist" / "linux" / "Polpad",
+        help="executável a instalar (padrão: dist/linux/Polpad)",
     )
     parser.add_argument(
         "--remover", action="store_true", help="desinstala o que este script criou"

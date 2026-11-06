@@ -121,7 +121,7 @@ def main() -> int:
     boot_app0 = _boot_app0(pasta, args.boot_app0)
 
     versao = firmware_version()
-    saida = args.saida or (RAIZ / "dist" / f"firmware-{versao}.bin")
+    saida = args.saida or (RAIZ / "dist" / "firmware" / f"firmware-{versao}.bin")
     saida.parent.mkdir(parents=True, exist_ok=True)
 
     partes: list[str] = [

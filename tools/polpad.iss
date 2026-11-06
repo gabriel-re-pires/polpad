@@ -43,7 +43,7 @@ DisableWelcomePage=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 LicenseFile={#Licenca}
-OutputBaseFilename=Polpad-Setup
+OutputBaseFilename=Polpad-Windows-Instalador
 SetupIconFile={#Icone}
 #ifdef ImagemGrande
 WizardImageFile={#ImagemGrande}

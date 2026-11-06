@@ -3,11 +3,13 @@
     .venv\\Scripts\\python tools\\build_exe.py      (Windows)
     .venv/bin/python tools/build_exe.py           (Linux)
 
-Produz ``dist/Polpad/Polpad.exe`` (uma pasta) no Windows e ``dist/Polpad``
+Produz ``dist/windows/Polpad/Polpad.exe`` (uma pasta) no Windows e
+``dist/linux/Polpad``
 (arquivo único) no Linux, sem console e sem precisar de Python. No
-Windows, ``--instalador`` gera também ``dist/Polpad-Setup.exe`` com o Inno
+Windows, ``--instalador`` gera também
+``dist/windows/Polpad-Windows-Instalador.exe`` com o Inno
 Setup 6 (``tools/polpad.iss``), que é o que se publica. No Linux,
-``dist/Polpad --instalar-no-menu`` coloca o executável no menu de
+``dist/linux/Polpad --instalar-no-menu`` coloca o executável no menu de
 aplicativos, com o ícone.
 
 Com o aplicativo aberto, o Windows não deixa sobrescrever o ``.exe`` em
@@ -44,6 +46,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 ICONE = RAIZ / "build" / "polpad.ico"
 NOME = "Polpad"
+INSTALADOR = "Polpad-Windows-Instalador.exe"
 WINDOWS = sys.platform == "win32"
 # Backend X11 do pynput, que ele escolhe em tempo de execução (ver main()).
 _PYNPUT_XORG = (
@@ -66,9 +69,10 @@ def main() -> int:
     parser.add_argument(
         "--destino",
         type=Path,
-        default=RAIZ / "dist",
+        default=RAIZ / "dist" / ("windows" if WINDOWS else "linux"),
         help=(
-            "pasta onde gravar o executável (padrão: dist/). Útil quando o "
+            "pasta onde gravar o executável (padrão: dist/windows ou dist/linux). "
+            "Útil quando o "
             "aplicativo está aberto: o Windows não deixa sobrescrever um .exe "
             "em execução, e o PyInstaller falha com “Acesso negado”."
         ),
@@ -76,7 +80,7 @@ def main() -> int:
     parser.add_argument(
         "--instalador",
         action="store_true",
-        help="Windows: depois do executável, gera dist/Polpad-Setup.exe (Inno Setup 6)",
+        help=f"Windows: depois do executável, gera {INSTALADOR} (Inno Setup 6)",
     )
     args = parser.parse_args()
     destino = args.destino.resolve()
@@ -182,10 +186,10 @@ def main() -> int:
             ],
             "gerando o instalador com o Inno Setup",
         )
-        setup = destino / f"{NOME}-Setup.exe"
+        setup = destino / INSTALADOR
         print(f"Pronto: {setup} ({setup.stat().st_size / 1024 / 1024:.1f} MB)")
     if not WINDOWS:
-        print("Para pôr no menu: dist/Polpad --instalar-no-menu")
+        print(f"Para pôr no menu: {exe} --instalar-no-menu")
     return 0
 
 
@@ -202,9 +206,8 @@ def _licenca() -> Path:
     return destino
 
 
-POLVO_GRANDE = (
-    RAIZ / "docs" / "marca" / "polvo-encoder" / "png" / "polvo-roxo" / "polvo-roxo-1024.png"
-)
+POLVO_GRANDE = RAIZ / "docs" / "marca" / "polvo-encoder" / "png" / "polvo-roxo"
+POLVO_GRANDE = POLVO_GRANDE / "polvo-roxo-1024.png"
 # Degradê roxo-escuro do painel (topo → base), da família do roxo da marca.
 ROXO_TOPO = (48, 16, 104)
 ROXO_BASE = (22, 7, 52)
@@ -217,7 +220,8 @@ def _painel(largura: int, altura: int):
     fundo = Image.new("RGBA", (largura, altura))
     for y in range(altura):
         t = y / max(altura - 1, 1)
-        cor = tuple(round(a + (b - a) * t) for a, b in zip(ROXO_TOPO, ROXO_BASE))
+        pares = zip(ROXO_TOPO, ROXO_BASE, strict=True)
+        cor = tuple(round(a + (b - a) * t) for a, b in pares)
         fundo.paste((*cor, 255), (0, y, largura, y + 1))
     lado = int(largura * 1.9)
     polvo = Image.open(POLVO_GRANDE).convert("RGBA").resize((lado, lado), Image.LANCZOS)
