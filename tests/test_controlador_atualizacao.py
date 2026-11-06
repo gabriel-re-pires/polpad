@@ -112,6 +112,7 @@ class Base(unittest.TestCase):
         runner=None,
         tipo="windows",
         plataforma="win32",
+        central=None,
     ):
         store = Store(self.dados, vault=CofreFalso())
         store.settings.update_auto = auto
@@ -129,6 +130,7 @@ class Base(unittest.TestCase):
             quit_app=lambda: self.saidas.append("sair"),
             runner=runner or _sincrono,
             kind=lambda: tipo,
+            center=central,
         )
         self.addCleanup(controlador.shutdown)
         return controlador
@@ -243,6 +245,28 @@ class VerificacaoTest(Base):
         self.assertFalse(controlador.toast.isVisible())
         controlador.scheduled_check()
         self.assertTrue(controlador.toast.isVisible())
+
+    def test_aviso_aparece_a_cada_inicio(self):
+        # Verificou há 2 h, mas o Polpad acabou de abrir: avisa de novo.
+        state.UpdateState(last_check=(AGORA - timedelta(hours=2)).isoformat()).save(
+            state.state_path(self.dados)
+        )
+        controlador = self._controlador()
+        with mock.patch.object(
+            update_controller.QTimer, "singleShot", lambda _ms, fn: fn()
+        ):
+            controlador.start()
+        self.assertTrue(controlador.toast.isVisible())
+
+    def test_atualizar_limpa_a_central_de_notificacoes(self):
+        central = mock.Mock()
+        controlador = self._controlador(central=central)
+        controlador.check_now(user=False)
+        central.post.assert_called_once_with(
+            "Nova versão do Polpad: 0.5.1", "Você está na 0.5.0"
+        )
+        controlador.toast.action_button.click()
+        central.clear.assert_called()
 
     def test_aviso_desligado(self):
         controlador = self._controlador()

@@ -100,6 +100,9 @@ def main() -> int:
     if WINDOWS:
         _run([sys.executable, str(RAIZ / "tools" / "make_icon.py")], "gerando o ícone")
         por_plataforma += ["--icon", str(ICONE)]
+        # Central de notificações: os módulos winrt se importam entre si
+        # por dentro das extensões, fora da análise do PyInstaller.
+        por_plataforma += ["--collect-submodules", "winrt"]
     else:
         por_plataforma += ["--collect-submodules", "Xlib"]
         # O --collect-submodules do pynput precisa importá-lo, e no Linux

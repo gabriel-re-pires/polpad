@@ -102,6 +102,9 @@ Name: "{autodesktop}\Polpad"; Filename: "{app}\Polpad.exe"; Tasks: desktopicon
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Polpad"; ValueData: """{app}\Polpad.exe"" --minimized"; Tasks: iniciarcomwindows; Check: not WizardSilent; Flags: uninsdeletevalue
 ; Se a pessoa ligou depois, pelas Configurações, a desinstalação também remove.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Polpad"; Flags: uninsdeletevalue dontcreatekey
+; Nome e ícone dos avisos na central de notificações (o Polpad grava ao
+; avisar); aqui só para sair junto na desinstalação.
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\Polpad.Polpad"; ValueType: string; ValueName: "DisplayName"; ValueData: "Polpad"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\Polpad.exe"; Description: "Abrir o Polpad agora"; Flags: nowait postinstall skipifsilent

@@ -233,6 +233,20 @@ QToolButton#bareIcon:hover, QToolButton#bareIcon:pressed {
 }
 QToolButton#bareIcon:focus { border-color: $ACCENT; }
 QToolButton::menu-indicator { image: none; width: 0; }
+/* X do aviso de atualização: só o símbolo, vermelho, sem caixa em volta. */
+QToolButton#toastClose {
+    color: $DANGER;
+    border: none;
+    background: transparent;
+    padding: 0 4px;
+    font-size: ${SIZE_TITLE}px;
+    font-weight: 600;
+}
+QToolButton#toastClose:hover, QToolButton#toastClose:pressed {
+    color: $DANGER;
+    background: transparent;
+    border: none;
+}
 
 /* Controle segmentado (dois botões exclusivos lado a lado). */
 QPushButton#segment {
@@ -405,6 +419,7 @@ QStatusBar {
     font-size: ${SIZE_SMALL}px;
 }
 QStatusBar::item { border: none; }
+QLabel#statusVersion { color: $TEXT_FAINT; font-size: ${SIZE_SMALL}px; }
 QDialogButtonBox QPushButton { min-width: 84px; }
 """
 )

@@ -38,6 +38,7 @@ def main() -> int:
     from .core import logs
     from .core.store import default_data_dir
     from .single_instance import SingleInstance
+    from .ui import notification_center
     from .ui.main_window import MainWindow
     from .ui.style import build_stylesheet
     from .ui.update_controller import UpdateController, safe_startup
@@ -91,6 +92,7 @@ def main() -> int:
         window,
         release_instance=instance.release,
         quit_app=window.quit_for_switch,
+        center=notification_center,
     )
     window.set_update_controller(updates)
     instance.activated.connect(window.present)
