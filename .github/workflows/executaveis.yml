@@ -48,7 +48,7 @@ jobs:
             # ele exige. O 22.04 (glibc 2.35) cobre Ubuntu 22.04+, Debian 12,
             # Fedora e Arch atuais; gerar no 24.04 deixaria o 22.04 de fora.
             os: ubuntu-22.04
-            arquivo: Polpad-Linux-x86_64.tar.gz
+            arquivo: Polpad-Linux-Instalador.tar.gz
             antigo: Polpad-linux-x86_64.tar.gz
     defaults:
       run:
@@ -148,7 +148,7 @@ jobs:
           cp dist/linux/Polpad "$RUNNER_TEMP/troca/Polpad"
           mkdir -p "$RUNNER_TEMP/pacote/Polpad-Linux"
           cp dist/linux/Polpad "$RUNNER_TEMP/pacote/Polpad-Linux/Polpad"
-          pacote="$dados/updates/v9.9.9/Polpad-Linux-x86_64.tar.gz"
+          pacote="$dados/updates/v9.9.9/Polpad-Linux-Instalador.tar.gz"
           tar -czf "$pacote" -C "$RUNNER_TEMP/pacote" Polpad-Linux
           soma=$(sha256sum "$pacote" | cut -d' ' -f1)
           printf '{"last_check": null, "pending": {"version": "9.9.9", "path": "%s", "sha256": "%s"}, "switch": null}' \
@@ -258,7 +258,7 @@ jobs:
           ## Arquivos
 
           - `Polpad-Windows-Instalador.exe` — instalador do Windows 10/11.
-          - `Polpad-Linux-x86_64.tar.gz` — Linux (X11, x86-64). Extraia e abra
+          - `Polpad-Linux-Instalador.tar.gz` — Linux (X11, x86-64). Extraia e abra
             o `Polpad` da pasta `Polpad-Linux`; ele se oferece para entrar no
             menu de aplicativos.
           - `Polpad-Setup.exe` e `Polpad-linux-x86_64.tar.gz` — os mesmos, com

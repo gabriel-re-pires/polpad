@@ -80,7 +80,7 @@ Números `MAJOR.MINOR.PATCH`, na sequência iniciada em 0.1.0:
 
 3. O workflow **Executáveis** testa nos dois sistemas, confere que a tag
    bate com a versão do código, gera `Polpad-Windows-Instalador.exe` e
-   `Polpad-Linux-x86_64.tar.gz`, confere que os dois instalam e abrem e cria
+   `Polpad-Linux-Instalador.tar.gz`, confere que os dois instalam e abrem e cria
    um **rascunho** de release com eles e o `SHA256SUMS.txt`.
 4. No rascunho, escreva as novidades, anexe o `firmware-*.bin` se houver
    firmware novo e publique como **pré-lançamento**. Assim dá para baixar e
