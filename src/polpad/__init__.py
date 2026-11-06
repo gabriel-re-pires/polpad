@@ -4,7 +4,7 @@
 do cofre de credenciais e da instância única.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 APP_NAME = "Polpad"
 ORG_NAME = "Polpad"
