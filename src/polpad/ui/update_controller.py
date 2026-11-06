@@ -393,7 +393,9 @@ class UpdateController(QObject):
                 self.error = message
             self._refresh_dialog()
 
-        self._runner(lambda: releases.list_releases(self._session), done, failed)
+        self._runner(
+            lambda: releases.list_releases(self._session, self._platform), done, failed
+        )
 
     # ------------------------------------------------------------ instalação
 

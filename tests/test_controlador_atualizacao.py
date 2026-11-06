@@ -105,7 +105,13 @@ class Base(unittest.TestCase):
         self.saidas: list[str] = []
 
     def _controlador(
-        self, cliente=None, atual="0.5.0", auto=False, runner=None, tipo="windows"
+        self,
+        cliente=None,
+        atual="0.5.0",
+        auto=False,
+        runner=None,
+        tipo="windows",
+        plataforma="win32",
     ):
         store = Store(self.dados, vault=CofreFalso())
         store.settings.update_auto = auto
@@ -117,7 +123,7 @@ class Base(unittest.TestCase):
             session=cliente or _cliente(),
             now=lambda: AGORA,
             current=atual,
-            platform="win32",
+            platform=plataforma,
             executable=str(self.dados / "Polpad.exe"),
             launcher=self.processos.append,
             quit_app=lambda: self.saidas.append("sair"),
@@ -453,3 +459,25 @@ class RestaurarTest(Base):
         controlador._restore(copia)
         self.assertFalse(controlador.store.settings.update_notify)
         self.assertEqual(self.saidas, ["sair"])
+
+
+class PlataformaTest(Base):
+    def test_lista_usa_a_plataforma_do_controlador(self):
+        """A plataforma injetada vale também para escolher o arquivo do
+        release; com a do sistema, os testes de Windows falhavam no Linux."""
+        base = "https://x/v0.5.1"
+        payload = _payload()
+        payload[0]["assets"] = [
+            {
+                "name": "Polpad-linux-x86_64.tar.gz",
+                "size": 1,
+                "browser_download_url": f"{base}/Polpad-linux-x86_64.tar.gz",
+            },
+            {"name": "SHA256SUMS.txt", "size": 1, "browser_download_url": f"{base}/s"},
+        ]
+        cliente = ClienteFalso({github.RELEASES_URL: RespostaFalsa(payload=payload)})
+        controlador = self._controlador(cliente, plataforma="linux")
+        controlador.store.settings.update_notify = False
+        controlador.check_now(user=False)
+        self.assertIsNotNone(controlador.update)
+        self.assertEqual(controlador.update.asset_name, "Polpad-linux-x86_64.tar.gz")
