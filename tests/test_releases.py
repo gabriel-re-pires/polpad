@@ -53,7 +53,7 @@ class ListaTest(unittest.TestCase):
         nova = _release(
             "v0.6.0",
             _anexo("Polpad-Windows-Instalador.exe"),
-            _anexo("Polpad-Linux-x86_64.tar.gz"),
+            _anexo("Polpad-Linux-Instalador.tar.gz"),
             # Cópias com os nomes antigos, para a 0.5.0 se atualizar.
             _anexo("Polpad-Setup.exe"),
             _anexo("Polpad-linux-x86_64.tar.gz"),
@@ -63,7 +63,14 @@ class ListaTest(unittest.TestCase):
         self.assertEqual(windows.asset_name, "Polpad-Windows-Instalador.exe")
         self.assertEqual(windows.asset_url, "https://x/Polpad-Windows-Instalador.exe")
         linux = _listar([nova], "linux")[0]
-        self.assertEqual(linux.asset_name, "Polpad-Linux-x86_64.tar.gz")
+        self.assertEqual(linux.asset_name, "Polpad-Linux-Instalador.tar.gz")
+
+    def test_nomes_novos_nao_colidem_com_os_antigos(self):
+        """O GitHub não distingue maiúsculas nos anexos: um nome novo igual
+        a um antigo, a menos da caixa, derruba o envio do release."""
+        novos = {releases.WINDOWS_ASSET, releases.LINUX_ASSET}
+        antigos = set(releases.LEGACY_ASSETS.values())
+        self.assertFalse({n.lower() for n in novos} & {n.lower() for n in antigos})
 
     def test_041_nao_e_instalavel(self):
         antiga = _release(

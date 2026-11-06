@@ -14,7 +14,7 @@ from typing import Any
 from . import github
 
 WINDOWS_ASSET = "Polpad-Windows-Instalador.exe"
-LINUX_ASSET = "Polpad-Linux-x86_64.tar.gz"
+LINUX_ASSET = "Polpad-Linux-Instalador.tar.gz"
 # Nomes até a 0.5.0: ainda aceitos, para instalar essas versões.
 LEGACY_ASSETS = {
     WINDOWS_ASSET: "Polpad-Setup.exe",
