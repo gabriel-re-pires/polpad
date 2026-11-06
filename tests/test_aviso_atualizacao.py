@@ -8,6 +8,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import shiboken6
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication
@@ -16,6 +17,13 @@ from polpad.core.models import Settings
 from polpad.ui import style, update_toast
 
 APP = QApplication.instance() or QApplication([])
+
+
+def _apagar(aviso: update_toast.UpdateToast) -> None:
+    """Fecha e destrói o aviso já: uma janela sem dono destruída depois do
+    ``QApplication`` derruba o processo ao sair."""
+    aviso.close()
+    shiboken6.delete(aviso)
 
 
 class PosicaoTest(unittest.TestCase):
@@ -35,7 +43,7 @@ class PosicaoTest(unittest.TestCase):
 class AvisoTest(unittest.TestCase):
     def setUp(self):
         self.aviso = update_toast.UpdateToast()
-        self.addCleanup(self.aviso.close)
+        self.addCleanup(_apagar, self.aviso)
         self.sinais: list[str] = []
         for nome in (
             "update_clicked",
@@ -101,7 +109,7 @@ class AvisoTest(unittest.TestCase):
 class VisualTest(unittest.TestCase):
     def setUp(self):
         self.aviso = update_toast.UpdateToast()
-        self.addCleanup(self.aviso.close)
+        self.addCleanup(_apagar, self.aviso)
 
     def test_sem_fundo_atras_do_cartao(self):
         self.assertTrue(self.aviso.testAttribute(Qt.WA_TranslucentBackground))
@@ -140,7 +148,7 @@ class TempoNaTelaTest(unittest.TestCase):
         self.aviso = update_toast.UpdateToast(
             notify=lambda titulo, texto: self.avisos.append((titulo, texto))
         )
-        self.addCleanup(self.aviso.close)
+        self.addCleanup(_apagar, self.aviso)
 
     def test_some_sozinho_depois_de_5_segundos(self):
         self.aviso.show_available("0.5.1", "0.5.0")
