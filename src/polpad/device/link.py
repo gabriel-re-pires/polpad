@@ -83,6 +83,17 @@ def permission_hint() -> str:
     )
 
 
+def _read_available(ser: Any) -> bytes:
+    """Lê o que já chegou, sem esperar juntar mais.
+
+    ``ser.read(n)`` só volta antes do timeout quando já há ``n`` bytes; uma
+    tecla tem ~30 bytes, então pedir um bloco fixo fazia cada aperto
+    esperar o timeout inteiro da porta. Com nada no buffer, ``read(1)``
+    volta assim que o primeiro byte chega.
+    """
+    return ser.read(ser.in_waiting or 1)
+
+
 class SerialLink:
     RECONNECT_DELAY_S = 2.0
     HANDSHAKE_TIMEOUT_S = 2.0
@@ -245,7 +256,7 @@ class SerialLink:
             if now - last_ping >= self.HEARTBEAT_S:
                 last_ping = now
                 self.send(protocol.msg_ping())
-            chunk = ser.read(256)
+            chunk = _read_available(ser)
             if not chunk:
                 continue
             buffer += chunk
@@ -273,7 +284,7 @@ class SerialLink:
         pending: list[dict[str, Any]] = []
         recognized = False
         while time.monotonic() < deadline:
-            chunk = ser.read(64)
+            chunk = _read_available(ser)
             if not chunk:
                 if recognized:
                     break
