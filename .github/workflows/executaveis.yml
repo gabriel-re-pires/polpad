@@ -7,8 +7,8 @@
 #   houver firmware novo e publique como pré-lançamento para testar; tirando
 #   o pré-lançamento, a versão vira a oficial. (O aplicativo só enxerga
 #   releases publicados que não são pré-lançamento.)
-# * Execução manual (aba Actions → Executáveis → Run workflow) ou PR que
-#   mexe no empacotamento: só gera os arquivos, para baixar em "Artifacts" e
+# * Execução manual (aba Actions → Executáveis → Run workflow) ou qualquer
+#   PR: testa e gera os arquivos, para baixar em "Artifacts" e
 #   testar. Não mexe nos releases.
 #
 # O PyInstaller não gera executável para outro sistema: cada um sai de um
@@ -20,15 +20,9 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-  # Quebrar o empacotamento só apareceria na hora do release; assim aparece
-  # no PR que causou a quebra.
+  # Em todo PR: são os testes e o empacotamento dos dois sistemas, e o main
+  # exige que passem antes do merge.
   pull_request:
-    paths:
-      - .github/workflows/executaveis.yml
-      - tools/build_exe.py
-      - tools/entrypoint.py
-      - tools/polpad.iss
-      - pyproject.toml
 
 permissions:
   contents: read
