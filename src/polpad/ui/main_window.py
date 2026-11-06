@@ -31,7 +31,7 @@ import copy
 import logging
 import sys
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
@@ -67,6 +67,9 @@ from .key_grid import DeviceView
 from .port_combo import PortCombo
 from .profile_panel import ProfilePanel
 from .settings_dialog import SettingsPage
+
+if TYPE_CHECKING:
+    from .update_controller import UpdateController
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +115,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 760)
         self.setMinimumSize(1040, 620)
         self._quitting = False
+        self._updates: UpdateController | None = None
         self._tray_notified = False
         self._setup_tray()
 
@@ -260,6 +264,10 @@ class MainWindow(QMainWindow):
             glyphs.icon("settings", style.TEXT), "Configurações\tCtrl+,"
         )
         settings_act.triggered.connect(self._open_settings)
+        updates_act = menu.addAction(
+            glyphs.icon("import", style.TEXT), "Versão e atualizações…"
+        )
+        updates_act.triggered.connect(self._open_updates)
         flash_act = menu.addAction(glyphs.icon("chip", style.TEXT), "Gravar firmware…")
         flash_act.triggered.connect(self._open_flash_dialog)
         ports_act = menu.addAction(
@@ -304,9 +312,7 @@ class MainWindow(QMainWindow):
         # Perfil em uso no aparelho: só uma bolinha verde, como na lista.
         self._active_dot = QLabel()
         self._active_dot.setFixedSize(10, 10)
-        self._active_dot.setStyleSheet(
-            f"background:{style.SUCCESS}; border-radius:5px;"
-        )
+        self._active_dot.setStyleSheet(f"background:{style.SUCCESS}; border-radius:5px;")
         self._active_dot.setToolTip("Perfil ativo no macropad")
         self._active_dot.setAccessibleName("Perfil ativo no macropad")
         head.addWidget(self._active_dot)
@@ -395,9 +401,7 @@ class MainWindow(QMainWindow):
         self._tray_menu = menu
         self._tray.setContextMenu(menu)
         self._tray.activated.connect(
-            lambda reason: self.present()
-            if reason == QSystemTrayIcon.Trigger
-            else None
+            lambda reason: self.present() if reason == QSystemTrayIcon.Trigger else None
         )
         self._tray.show()
 
@@ -416,8 +420,18 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def set_update_controller(self, controller: UpdateController) -> None:
+        self._updates = controller
+
+    def _open_updates(self) -> None:
+        if self._updates is not None:
+            self._updates.open_dialog()
+
     def quit_app(self) -> None:
         """Encerra de verdade (fechar a janela apenas minimiza à bandeja)."""
+        if self._updates is not None:
+            # Atualização automática pendente: instala ao sair, sem reabrir.
+            self._updates.before_quit()
         self._quitting = True
         self.close()
 
@@ -528,9 +542,7 @@ class MainWindow(QMainWindow):
         )
         if ok:
             # O enlace tenta a porta de novo a cada 2 s e conecta sozinho.
-            self.statusBar().showMessage(
-                "Acesso liberado. Conectando ao macropad…", 8000
-            )
+            self.statusBar().showMessage("Acesso liberado. Conectando ao macropad…", 8000)
             return
         if not error:
             self.statusBar().showMessage(
@@ -601,9 +613,7 @@ class MainWindow(QMainWindow):
         if self._core.controller.splashing:
             # O display mostra o ícone por um instante e volta ao mapa; o
             # preview acompanha a volta.
-            QTimer.singleShot(
-                int(Controller.SPLASH_S * 1000) + 60, self._refresh_preview
-            )
+            QTimer.singleShot(int(Controller.SPLASH_S * 1000) + 60, self._refresh_preview)
 
     def _on_edit_profile(self, profile_id: str) -> None:
         if profile_id != self._editing_profile_id:
@@ -684,7 +694,7 @@ class MainWindow(QMainWindow):
         self._save_bindings()
 
     def _make_mode_key(self, key: int) -> None:
-        """"Alternar perfil" vira a tecla de modo, que vale em todos os perfis."""
+        """ "Alternar perfil" vira a tecla de modo, que vale em todos os perfis."""
         store = self._core.store
         afetados = store.mode_switch_conflicts(key)
         if afetados:
@@ -946,6 +956,8 @@ class MainWindow(QMainWindow):
                 )
             return
         self._tray.hide()
+        if self._updates is not None:
+            self._updates.shutdown()
         self._core.shutdown()
         super().closeEvent(event)
         # Com setQuitOnLastWindowClosed(False), o loop de eventos precisa

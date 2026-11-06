@@ -30,14 +30,17 @@ def main() -> int:
     if menu is not None:
         return menu
 
+    from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
     from . import APP_NAME, ORG_NAME, __version__
     from .app import MacropadApp
     from .core import logs
+    from .core.store import default_data_dir
     from .single_instance import SingleInstance
     from .ui.main_window import MainWindow
     from .ui.style import build_stylesheet
+    from .ui.update_controller import UpdateController, startup
 
     log_path = logs.setup()
     logging.getLogger(__name__).info(
@@ -45,6 +48,10 @@ def main() -> int:
     )
 
     start_minimized = "--minimized" in sys.argv
+    # Reaberto pelo próprio Polpad depois de uma troca de versão: a
+    # instância antiga pode levar alguns instantes para sair.
+    after_update = "--apos-atualizacao" in sys.argv
+    frozen = bool(getattr(sys, "frozen", False))
 
     # Liga a janela ao polpad.desktop instalado (ícone no painel/Wayland).
     # Antes de criar o QApplication, que já se registra no portal com ele.
@@ -59,17 +66,31 @@ def main() -> int:
     # Duas instâncias disputariam a porta serial e a bandeja: a segunda
     # apenas pede à primeira que apareça e encerra.
     instance = SingleInstance()
-    if not instance.try_acquire():
+    if not instance.try_acquire(wait_s=5.0 if after_update else 0.0):
         logging.getLogger(__name__).info(
             "já existe uma instância em execução; encerrando esta"
         )
         return 0
 
+    # Antes da janela: confere a troca anterior e instala a pendente.
+    result = startup(
+        default_data_dir(), __version__, frozen, release_instance=instance.release
+    )
+    if result.action == "exit":
+        return 0
+
     core = MacropadApp()
     window = MainWindow(core)
+    updates = UpdateController(core.store, window, release_instance=instance.release)
+    window.set_update_controller(updates)
     instance.activated.connect(window.present)
     if not start_minimized:
         window.show()
+    updates.show_startup_result(result)
+    if frozen:
+        # Rodando pelo código-fonte o atualizador fica desligado.
+        updates.start()
+        QTimer.singleShot(0, updates.maybe_offer_linux_install)
     return qt_app.exec()
 
 
