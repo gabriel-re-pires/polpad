@@ -225,7 +225,7 @@ def _snapshot_logger(esptool_log: Any) -> Callable[[], None]:
     try:
         from esp_pylib.logger import EspLog
     except ImportError:
-        EspLog = None  # noqa: N806 - nome da classe importada
+        EspLog = None  # type: ignore[misc,assignment]  # noqa: N806 - nome da classe importada
 
     if EspLog is not None and not hasattr(type(esptool_log), "set_logger"):
         previous_instance = EspLog.instance
