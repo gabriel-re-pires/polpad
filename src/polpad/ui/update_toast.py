@@ -4,14 +4,19 @@ Janela própria, sem moldura e sempre por cima, que não rouba o foco de
 quem está digitando. Aparece mesmo com o Polpad escondido na bandeja.
 O mesmo aviso mostra versão nova, instalação pendente, progresso,
 resultado de uma troca e erros.
+
+Os avisos informativos ficam 5 s na tela (ou enquanto o mouse estiver
+em cima) e vão para a central de notificações do sistema; progresso e
+erros ficam até o usuário agir.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QEnterEvent, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -22,10 +27,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import app_icon
+from . import app_icon, style
 
 MARGIN = 16
 WIDTH = 360
+#: Quanto tempo um aviso informativo fica na tela.
+VISIBLE_MS = 5000
+LINK = f'<a href="novidades" style="color: {style.ACCENT_HOVER};">Ver novidades</a>'
+
+Notify = Callable[[str, str], object]
 
 
 def toast_position(available: QRect, size: QSize, margin: int = MARGIN) -> QPoint:
@@ -43,14 +53,25 @@ class UpdateToast(QWidget):
     retry_clicked = Signal()
     dismissed = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, notify: Notify | None = None
+    ) -> None:
         super().__init__(
             parent,
             Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
         )
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        # Só o cartão arredondado aparece: sem o retângulo escuro atrás.
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(WIDTH)
         self._action = ""
+        # Guarda o aviso na central de notificações (ver notification_center).
+        self._notify = notify
+        self._auto_hide = False
+        self.hide_timer = QTimer(self)
+        self.hide_timer.setSingleShot(True)
+        self.hide_timer.setInterval(VISIBLE_MS)
+        self.hide_timer.timeout.connect(self.hide)
 
         card = QFrame(self)
         card.setObjectName("card")
@@ -74,21 +95,27 @@ class UpdateToast(QWidget):
         self.detail = QLabel()
         self.detail.setObjectName("hint")
         self.detail.setWordWrap(True)
-        self.details_link = QLabel('<a href="novidades">Ver novidades</a>')
+        self.details_link = QLabel(LINK)
         self.details_link.linkActivated.connect(lambda _href: self.details_clicked.emit())
         self.action_button = QPushButton()
         self.action_button.setObjectName("primary")
         self.action_button.clicked.connect(self._on_action)
+        # "Ver novidades" à esquerda e o botão encostado à direita, na mesma linha.
+        actions = QHBoxLayout()
+        actions.setSpacing(12)
+        actions.addWidget(self.details_link, 0, Qt.AlignVCenter)
+        actions.addStretch(1)
+        actions.addWidget(self.action_button, 0, Qt.AlignVCenter)
         texts.addWidget(self.title)
         texts.addWidget(self.detail)
-        texts.addWidget(self.details_link)
-        texts.addWidget(self.action_button, 0, Qt.AlignLeft)
+        texts.addLayout(actions)
         layout.addLayout(texts, 1)
 
         self.close_button = QToolButton()
+        self.close_button.setObjectName("toastClose")
         self.close_button.setText("✕")
         self.close_button.setToolTip("Fechar")
-        self.close_button.setAutoRaise(True)
+        self.close_button.setCursor(Qt.PointingHandCursor)
         self.close_button.clicked.connect(self._on_close)
         layout.addWidget(self.close_button, 0, Qt.AlignTop)
 
@@ -128,6 +155,7 @@ class UpdateToast(QWidget):
         )
 
     def show_error(self, text: str) -> None:
+        self._stay()
         self.detail.setText(text)
         self.detail.show()
         self.action_button.setText("Tentar de novo")
@@ -137,6 +165,7 @@ class UpdateToast(QWidget):
         self._place()
 
     def show_progress(self, text: str) -> None:
+        self._stay()
         self.detail.setText(text)
         self.detail.show()
         self.action_button.hide()
@@ -159,6 +188,25 @@ class UpdateToast(QWidget):
         self._action = kind
         self.show()
         self._place()
+        self._auto_hide = True
+        self.hide_timer.start()
+        if self._notify is not None:
+            self._notify(title, detail)
+
+    def _stay(self) -> None:
+        """Progresso e erros esperam o usuário: não somem sozinhos."""
+        self._auto_hide = False
+        self.hide_timer.stop()
+
+    def enterEvent(self, event: QEnterEvent) -> None:  # noqa: N802 — API Qt
+        # Quem vai clicar em "Atualizar" não pode ver o aviso sumir.
+        self.hide_timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802 — API Qt
+        if self._auto_hide and self.isVisible():
+            self.hide_timer.start()
+        super().leaveEvent(event)
 
     def _place(self) -> None:
         self.adjustSize()
@@ -176,5 +224,6 @@ class UpdateToast(QWidget):
             signal.emit()
 
     def _on_close(self) -> None:
+        self.hide_timer.stop()
         self.hide()
         self.dismissed.emit()

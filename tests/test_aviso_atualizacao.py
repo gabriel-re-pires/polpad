@@ -8,11 +8,12 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QRect, QSize
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication
 
 from polpad.core.models import Settings
-from polpad.ui import update_toast
+from polpad.ui import style, update_toast
 
 APP = QApplication.instance() or QApplication([])
 
@@ -95,6 +96,89 @@ class AvisoTest(unittest.TestCase):
         self.aviso.show_available("0.5.1", "0.5.0")
         self.aviso.details_link.linkActivated.emit("novidades")
         self.assertEqual(self.sinais, ["details_clicked"])
+
+
+class VisualTest(unittest.TestCase):
+    def setUp(self):
+        self.aviso = update_toast.UpdateToast()
+        self.addCleanup(self.aviso.close)
+
+    def test_sem_fundo_atras_do_cartao(self):
+        self.assertTrue(self.aviso.testAttribute(Qt.WA_TranslucentBackground))
+
+    def test_x_vermelho_sem_bloco(self):
+        self.assertEqual(self.aviso.close_button.objectName(), "toastClose")
+        qss = style.build_stylesheet()
+        regra = qss.split("QToolButton#toastClose {", 1)[1].split("}", 1)[0]
+        self.assertIn(f"color: {style.DANGER}", regra)
+        self.assertIn("border: none", regra)
+        self.assertIn("background: transparent", regra)
+
+    def test_atualizar_na_linha_do_ver_novidades_a_direita(self):
+        self.aviso.show_available("0.5.1", "0.5.0")
+        link = self.aviso.details_link.geometry()
+        botao = self.aviso.action_button.geometry()
+        self.assertIs(self.aviso.details_link.parent(), self.aviso.action_button.parent())
+        self.assertTrue(link.top() <= botao.center().y() <= link.bottom() + 8)
+        self.assertGreater(botao.left(), link.right())
+        # Encostado à direita da coluna de textos.
+        coluna = self.aviso.title.geometry()
+        self.assertEqual(botao.right(), coluna.right())
+
+    def test_ver_novidades_na_cor_do_botao_em_todos_os_avisos(self):
+        for mostrar in (
+            lambda: self.aviso.show_available("0.5.1", "0.5.0"),
+            lambda: self.aviso.show_updated("0.5.1"),
+        ):
+            mostrar()
+            self.assertIn(style.ACCENT_HOVER, self.aviso.details_link.text())
+
+
+class TempoNaTelaTest(unittest.TestCase):
+    def setUp(self):
+        self.avisos: list[tuple[str, str]] = []
+        self.aviso = update_toast.UpdateToast(
+            notify=lambda titulo, texto: self.avisos.append((titulo, texto))
+        )
+        self.addCleanup(self.aviso.close)
+
+    def test_some_sozinho_depois_de_5_segundos(self):
+        self.aviso.show_available("0.5.1", "0.5.0")
+        self.assertEqual(self.aviso.hide_timer.interval(), 5000)
+        self.assertTrue(self.aviso.hide_timer.isActive())
+        self.aviso.hide_timer.timeout.emit()
+        self.assertFalse(self.aviso.isVisible())
+
+    def test_avisos_vao_para_a_central_de_notificacoes(self):
+        self.aviso.show_available("0.5.1", "0.5.0")
+        self.aviso.show_updated("0.5.2")
+        self.assertEqual(
+            self.avisos,
+            [
+                ("Nova versão do Polpad: 0.5.1", "Você está na 0.5.0"),
+                ("Polpad atualizado para 0.5.2", ""),
+            ],
+        )
+
+    def test_progresso_e_erro_ficam_na_tela(self):
+        self.aviso.show_available("0.5.1", "0.5.0")
+        self.aviso.show_progress("Baixando… 10%")
+        self.assertFalse(self.aviso.hide_timer.isActive())
+        self.aviso.show_error("Sem internet")
+        self.assertFalse(self.aviso.hide_timer.isActive())
+        self.assertEqual(len(self.avisos), 1)
+
+    def test_mouse_em_cima_segura_o_aviso(self):
+        self.aviso.show_available("0.5.1", "0.5.0")
+        QApplication.sendEvent(self.aviso, QEnterEvent(QPointF(), QPointF(), QPointF()))
+        self.assertFalse(self.aviso.hide_timer.isActive())
+        QApplication.sendEvent(self.aviso, QEvent(QEvent.Leave))
+        self.assertTrue(self.aviso.hide_timer.isActive())
+
+    def test_mouse_em_cima_do_progresso_nao_religa_o_tempo(self):
+        self.aviso.show_progress("Baixando… 10%")
+        QApplication.sendEvent(self.aviso, QEvent(QEvent.Leave))
+        self.assertFalse(self.aviso.hide_timer.isActive())
 
 
 class ConfiguracoesTest(unittest.TestCase):

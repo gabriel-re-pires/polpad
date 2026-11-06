@@ -67,6 +67,7 @@ from .key_grid import DeviceView
 from .port_combo import PortCombo
 from .profile_panel import ProfilePanel
 from .settings_dialog import SettingsPage
+from .status_version import StatusVersion
 
 if TYPE_CHECKING:
     from .update_controller import UpdateController
@@ -174,6 +175,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
+        self._version_label = StatusVersion(f"{APP_NAME} {__version__}", self.statusBar())
 
         # ------------------------------------------------------------ sinais
         core.bridge.state.connect(self._set_connected)

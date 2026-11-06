@@ -25,6 +25,9 @@ dependencies = [
     # Gravação do firmware pela própria interface. A partir da 5.0 o esptool
     # expõe TemplateLogger, usado para levar progresso e log ao diálogo.
     "esptool>=5.0",
+    # Windows: guarda o aviso de atualização na central de notificações.
+    "winrt-Windows.UI.Notifications>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Data.Xml.Dom>=3.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

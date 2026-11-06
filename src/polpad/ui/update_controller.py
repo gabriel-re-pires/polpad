@@ -250,6 +250,7 @@ class UpdateController(QObject):
         runner: Runner | None = None,
         release_instance: Callable[[], None] | None = None,
         kind: Callable[[], str] = installer.install_kind,
+        center: Any | None = None,
     ) -> None:
         super().__init__(parent)
         self.store = store
@@ -283,7 +284,10 @@ class UpdateController(QObject):
         self._progress = _Progress()
         self._progress.changed.connect(self._on_progress)
 
-        self.toast = UpdateToast()
+        # Central de notificações do sistema (``notification_center``); sem
+        # ela, os avisos só aparecem no canto da tela.
+        self._center = center
+        self.toast = UpdateToast(notify=center.post if center is not None else None)
         self.toast.update_clicked.connect(self._on_toast_update)
         self.toast.install_now_clicked.connect(self._install_pending_now)
         self.toast.details_clicked.connect(self.open_dialog)
@@ -414,6 +418,9 @@ class UpdateController(QObject):
         self.error = ""
         self.toast.show_available(release.version, self.current)
         self.toast.show_progress("Baixando… 0%")
+        # O aviso "versão nova" guardado na central já não vale.
+        if self._center is not None:
+            self._center.clear()
         self._refresh_dialog()
 
         if self._auto_download == release.version:
