@@ -117,7 +117,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1040, 620)
         self._quitting = False
         self._updates: UpdateController | None = None
-        self._tray_notified = False
         self._setup_tray()
 
         root = QWidget()
@@ -985,17 +984,9 @@ class MainWindow(QMainWindow):
         self._save_layout()
         if not self._quitting and self._tray.isVisible():
             # Fechar a janela apenas esconde: o macropad continua funcionando.
+            # Sem aviso na bandeja: repetido a cada sessão, só incomodava.
             event.ignore()
             self.hide()
-            if not self._tray_notified:
-                self._tray_notified = True
-                self._tray.showMessage(
-                    APP_NAME,
-                    "Continuo rodando em segundo plano — o macropad segue "
-                    "funcionando. Use o ícone da bandeja para reabrir ou sair.",
-                    QSystemTrayIcon.Information,
-                    5000,
-                )
             return
         super().closeEvent(event)
         self._shutdown_and_quit()
