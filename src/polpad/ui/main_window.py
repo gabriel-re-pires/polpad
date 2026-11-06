@@ -51,9 +51,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import APP_NAME
+from .. import APP_NAME, __version__
 from ..app import AUTO_PORT, MacropadApp
-from ..core import autostart
+from ..core import autostart, reset
 from ..core.controller import Controller
 from ..core.models import Action, Profile
 from ..device import serial_access
@@ -832,9 +832,20 @@ class MainWindow(QMainWindow):
         """Abre as configurações como página, no lugar das colunas."""
         if self._settings_page is not None:
             return
-        page = SettingsPage(self._core.store.settings, self._core.store.profiles)
+        uninstall = (
+            self._updates.uninstall_support()
+            if self._updates is not None
+            else (False, "Indisponível nesta execução.")
+        )
+        page = SettingsPage(
+            self._core.store.settings, self._core.store.profiles, uninstall=uninstall
+        )
         page.saved.connect(self._on_settings_saved)
         page.closed.connect(self._close_overlay)
+        page.reset_settings_requested.connect(self._reset_settings)
+        page.reset_profiles_requested.connect(self._reset_profiles)
+        if self._updates is not None:
+            page.uninstall_requested.connect(self._updates.uninstall)
         self._show_overlay(page)
         self._settings_page = page
 
@@ -855,6 +866,35 @@ class MainWindow(QMainWindow):
         self._close_settings()
         self._refresh_all()
         self.statusBar().showMessage("Configurações salvas.", 3000)
+
+    def _reset_settings(self) -> None:
+        try:
+            reset.reset_settings(self._core.store, __version__)
+        except OSError as exc:
+            QMessageBox.critical(self, APP_NAME, f"Não foi possível restaurar: {exc}")
+            return
+        try:
+            autostart.apply(self._core.store.settings.start_with_windows)
+        except OSError:
+            log.warning("não foi possível desligar a inicialização automática")
+        self._core.controller.push_display()
+        self._close_settings()
+        self._refresh_all()
+        self.statusBar().showMessage("Configurações restauradas ao padrão.", 4000)
+
+    def _reset_profiles(self) -> None:
+        try:
+            reset.reset_profiles(self._core.store, __version__)
+        except OSError as exc:
+            QMessageBox.critical(self, APP_NAME, f"Não foi possível apagar: {exc}")
+            return
+        self._editing_profile_id = None
+        active = self._core.store.active_profile_id
+        if active is not None:
+            self._core.controller.activate_profile(active)
+        self._close_settings()
+        self._refresh_all()
+        self.statusBar().showMessage("Perfis apagados.", 4000)
 
     # ------------------------------------------------------------ refresh
 

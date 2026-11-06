@@ -106,6 +106,17 @@ QFrame#card {
     border: 1px solid $BORDER;
     border-radius: ${RADIUS_CARD}px;
 }
+QFrame#dangerCard {
+    background-color: $BG_SURFACE;
+    border: 1px solid $DANGER;
+    border-radius: ${RADIUS_CARD}px;
+}
+QLabel#dangerTitle {
+    color: $DANGER;
+    font-size: ${SIZE_TITLE}px;
+    font-weight: 600;
+    padding: 2px 0;
+}
 QFrame#divider { background-color: $BORDER; max-height: 1px; min-height: 1px; }
 
 /* ---------------------------------------------------------------- texto */

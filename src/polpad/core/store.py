@@ -249,6 +249,14 @@ class Store:
         self.active_profile_id = self.profiles[0].id
         self.save()
 
+    def reset_profiles(self) -> None:
+        """Deixa só o perfil inicial e apaga os ícones (Zona de risco)."""
+        self.profiles = []
+        self._create_default_profile()
+        self.active_profile_id = self.profiles[0].id
+        shutil.rmtree(self.icons_dir, ignore_errors=True)
+        self.save()
+
     def _create_default_profile(self) -> None:
         profile = Profile(name="Sistema")
         profile.bindings[0] = Action(

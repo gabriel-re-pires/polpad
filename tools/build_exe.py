@@ -166,7 +166,7 @@ def main() -> int:
     print(f"\nPronto: {exe}")
     if iscc is not None:
         licenca = _licenca()
-        grande, pequena = _imagens_do_assistente()
+        grande, pequena, desinstalar = _imagens_do_assistente()
         _run(
             [
                 iscc,
@@ -176,6 +176,7 @@ def main() -> int:
                 f"/DLicenca={licenca}",
                 f"/DImagemGrande={grande}",
                 f"/DImagemPequena={pequena}",
+                f"/DImagemDesinstalar={desinstalar}",
                 f"/O{destino}",
                 str(RAIZ / "tools" / "polpad.iss"),
             ],
@@ -201,28 +202,51 @@ def _licenca() -> Path:
     return destino
 
 
-def _imagens_do_assistente() -> tuple[str, str]:
-    """Imagens do assistente de instalação, em 100% e 200% de escala.
+POLVO_GRANDE = (
+    RAIZ / "docs" / "marca" / "polvo-encoder" / "png" / "polvo-roxo" / "polvo-roxo-1024.png"
+)
+# Degradê roxo-escuro do painel (topo → base), da família do roxo da marca.
+ROXO_TOPO = (48, 16, 104)
+ROXO_BASE = (22, 7, 52)
+
+
+def _painel(largura: int, altura: int):
+    """Painel roxo com metade do polvo, grande, saindo da borda esquerda."""
+    from PIL import Image
+
+    fundo = Image.new("RGBA", (largura, altura))
+    for y in range(altura):
+        t = y / max(altura - 1, 1)
+        cor = tuple(round(a + (b - a) * t) for a, b in zip(ROXO_TOPO, ROXO_BASE))
+        fundo.paste((*cor, 255), (0, y, largura, y + 1))
+    lado = int(largura * 1.9)
+    polvo = Image.open(POLVO_GRANDE).convert("RGBA").resize((lado, lado), Image.LANCZOS)
+    camada = Image.new("RGBA", (largura, altura))
+    # O centro do polvo fica na borda: aparece só a metade direita.
+    camada.paste(polvo, (-lado // 2, int(altura * 0.58) - lado // 2), polvo)
+    fundo.alpha_composite(camada)
+    return fundo.convert("RGB")
+
+
+def _imagens_do_assistente() -> tuple[str, str, str]:
+    """Imagens do instalador, em 100% e 200% de escala.
 
     A grande (164x314) fica à esquerda nas páginas de boas-vindas e de
-    conclusão, com o polvo sobre o fundo escuro da janela do Polpad; a
-    pequena (55x55) fica no canto das outras páginas, sobre o branco do
-    cabeçalho. O Inno Setup lê BMP de 24 bits.
+    conclusão; a pequena (55x55) fica no canto das outras páginas, sobre o
+    branco do cabeçalho. A de desinstalar (150x260, só em 200%: a tela a
+    estica) vai junto do programa, porque o desinstalador não tem as
+    imagens do instalador. O Inno Setup lê BMP de 24 bits.
     """
     from PIL import Image
 
     polvo = Image.open(RAIZ / "src" / "polpad" / "ui" / "assets" / "polvo-roxo-256.png")
     polvo = polvo.convert("RGBA")
     pasta = RAIZ / "build"
+    pasta.mkdir(parents=True, exist_ok=True)
     grandes, pequenas = [], []
     for escala in (1, 2):
-        largura, altura = 164 * escala, 314 * escala
-        fundo = Image.new("RGBA", (largura, altura), (12, 13, 17, 255))
-        lado = int(largura * 0.72)
-        icone = polvo.resize((lado, lado), Image.LANCZOS)
-        fundo.alpha_composite(icone, ((largura - lado) // 2, int(altura * 0.30)))
         caminho = pasta / f"assistente-grande-{escala}x.bmp"
-        fundo.convert("RGB").save(caminho)
+        _painel(164 * escala, 314 * escala).save(caminho)
         grandes.append(str(caminho))
 
         lado_p = 55 * escala
@@ -232,7 +256,9 @@ def _imagens_do_assistente() -> tuple[str, str]:
         caminho_p = pasta / f"assistente-pequena-{escala}x.bmp"
         fundo_p.convert("RGB").save(caminho_p)
         pequenas.append(str(caminho_p))
-    return ",".join(grandes), ",".join(pequenas)
+    desinstalar = pasta / "desinstalar.bmp"
+    _painel(150 * 2, 260 * 2).save(desinstalar)
+    return ",".join(grandes), ",".join(pequenas), str(desinstalar)
 
 
 def _versao() -> str:

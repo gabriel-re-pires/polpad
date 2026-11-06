@@ -87,8 +87,18 @@ class SettingsPage(QWidget):
 
     saved = Signal()
     closed = Signal()
+    # Zona de risco: quem executa é a janela principal.
+    reset_settings_requested = Signal()
+    reset_profiles_requested = Signal()
+    uninstall_requested = Signal()
 
-    def __init__(self, settings: Settings, profiles: list[Profile] | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        profiles: list[Profile] | None = None,
+        uninstall: tuple[bool, str] = (False, ""),
+    ) -> None:
+        """``uninstall``: se dá para desinstalar daqui e a explicação."""
         super().__init__()
         self._settings = settings
         # Usados apenas para avisar se a tecla de modo escolhida já tem ação.
@@ -212,6 +222,9 @@ class SettingsPage(QWidget):
         note.setObjectName("caption")
         column.addWidget(note)
 
+        self.danger_zone = self._danger_zone(uninstall)
+        column.addWidget(self.danger_zone)
+
         for i in range(column.count()):
             item = column.itemAt(i)
             widget = item.widget() if item is not None else None
@@ -221,6 +234,90 @@ class SettingsPage(QWidget):
 
         scroll.setWidget(content)
         root.addWidget(scroll, stretch=1)
+
+    # ------------------------------------------------------- zona de risco
+
+    def _danger_zone(self, uninstall: tuple[bool, str]) -> QFrame:
+        card = QFrame()
+        card.setObjectName("dangerCard")
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(20, 16, 20, 18)
+        outer.setSpacing(4)
+        title = QLabel("Zona de risco")
+        title.setObjectName("dangerTitle")
+        outer.addWidget(title)
+
+        def row(name: str, text: str, button: QPushButton) -> QLabel:
+            line = QHBoxLayout()
+            line.setContentsMargins(0, 10, 0, 0)
+            line.setSpacing(16)
+            texts = QVBoxLayout()
+            texts.setSpacing(2)
+            label = QLabel(name)
+            texts.addWidget(label)
+            hint = QLabel(text)
+            hint.setObjectName("caption")
+            hint.setWordWrap(True)
+            texts.addWidget(hint)
+            line.addLayout(texts, stretch=1)
+            button.setObjectName("danger")
+            line.addWidget(button, alignment=Qt.AlignVCenter)
+            outer.addLayout(line)
+            return hint
+
+        self.reset_settings_button = QPushButton("Restaurar padrões")
+        self.reset_settings_button.clicked.connect(self._on_reset_settings)
+        row(
+            "Restaurar configurações padrão",
+            "Volta estas configurações ao padrão. Os perfis ficam.",
+            self.reset_settings_button,
+        )
+        self.reset_profiles_button = QPushButton("Apagar perfis")
+        self.reset_profiles_button.clicked.connect(self._on_reset_profiles)
+        row(
+            "Apagar todos os perfis",
+            "Remove os perfis e os ícones; fica só o perfil inicial.",
+            self.reset_profiles_button,
+        )
+        available, reason = uninstall
+        self.uninstall_button = QPushButton("Desinstalar…")
+        self.uninstall_button.setEnabled(available)
+        self.uninstall_button.clicked.connect(self.uninstall_requested.emit)
+        self.uninstall_hint = row(
+            "Desinstalar o Polpad", reason, self.uninstall_button
+        )
+        return card
+
+    def _confirm(self, title: str, text: str) -> bool:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(title)
+        box.setText(text)
+        ok = box.addButton(title, QMessageBox.DestructiveRole)
+        cancel = box.addButton("Cancelar", QMessageBox.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        return box.clickedButton() is ok
+
+    def _on_reset_settings(self) -> None:
+        if self._confirm(
+            "Restaurar padrões",
+            "Todas as configurações desta página voltam ao padrão, inclusive a "
+            "tecla de modo, o início com o sistema e as integrações. O token "
+            "do Home Assistant e a senha do OBS são apagados e precisarão ser "
+            "digitados de novo.\n\nOs perfis não mudam. Uma cópia do estado "
+            "atual fica em Versão e atualizações.",
+        ):
+            self.reset_settings_requested.emit()
+
+    def _on_reset_profiles(self) -> None:
+        if self._confirm(
+            "Apagar perfis",
+            "Todos os perfis e seus ícones serão apagados; fica só o perfil "
+            "inicial.\n\nUma cópia do estado atual fica em Versão e "
+            "atualizações, de onde dá para restaurá-los.",
+        ):
+            self.reset_profiles_requested.emit()
 
     # ------------------------------------------------------------- captura
 

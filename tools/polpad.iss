@@ -87,6 +87,10 @@ Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "{#Origem}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef ImagemDesinstalar
+; Painel da tela de desinstalar: o desinstalador não tem as imagens do assistente.
+Source: "{#ImagemDesinstalar}"; DestDir: "{app}"; DestName: "desinstalar.bmp"; Flags: ignoreversion
+#endif
 
 [Icons]
 Name: "{autoprograms}\Polpad"; Filename: "{app}\Polpad.exe"
@@ -150,63 +154,89 @@ end;
 function InitializeUninstall: Boolean;
 var
   Form: TSetupForm;
+  Painel: TBitmapImage;
   Titulo, Texto, Dica: TNewStaticText;
   Caixa: TNewCheckBox;
   Remover, Cancelar: TNewButton;
-  Argumentos: String;
-  Codigo: Integer;
+  Imagem, Argumentos: String;
+  Codigo, Esquerda, Largura: Integer;
 begin
   Result := True;
   if UninstallSilent then
     Exit;
   Result := False;
-  Form := CreateCustomForm(ScaleX(460), ScaleY(210), False, False);
+  { Tamanho fixo: o painel do polvo à esquerda, o texto à direita. }
+  Form := CreateCustomForm(ScaleX(560), ScaleY(260), False, False);
   try
     Form.Caption := 'Desinstalar o Polpad';
+    Form.BorderStyle := bsDialog;
+    Form.BorderIcons := [biSystemMenu];
+    Form.Position := poScreenCenter;
+    { Branco, como o conteúdo das páginas do instalador. }
+    Form.Color := clWindow;
+
+    Esquerda := 0;
+    Imagem := ExpandConstant('{app}\desinstalar.bmp');
+    if FileExists(Imagem) then
+    begin
+      Painel := TBitmapImage.Create(Form);
+      Painel.Parent := Form;
+      Painel.Left := 0;
+      Painel.Top := 0;
+      Painel.Width := ScaleX(150);
+      Painel.Height := Form.ClientHeight;
+      Painel.Stretch := True;
+      Painel.Bitmap.LoadFromFile(Imagem);
+      Esquerda := Painel.Width;
+    end;
+    Esquerda := Esquerda + ScaleX(24);
+    Largura := Form.ClientWidth - Esquerda - ScaleX(24);
 
     Titulo := TNewStaticText.Create(Form);
     Titulo.Parent := Form;
-    Titulo.Left := ScaleX(20);
-    Titulo.Top := ScaleY(18);
+    Titulo.Left := Esquerda;
+    Titulo.Top := ScaleY(22);
     Titulo.Font.Style := [fsBold];
-    Titulo.Caption := 'O Polpad será removido deste computador.';
+    Titulo.Font.Size := 12;
+    Titulo.Caption := 'Desinstalar o Polpad';
 
     Texto := TNewStaticText.Create(Form);
     Texto.Parent := Form;
-    Texto.Left := ScaleX(20);
-    Texto.Top := ScaleY(44);
-    Texto.Width := Form.ClientWidth - ScaleX(40);
+    Texto.Left := Esquerda;
+    Texto.Top := ScaleY(56);
+    Texto.Width := Largura;
     Texto.AutoSize := False;
     Texto.WordWrap := True;
-    Texto.Height := ScaleY(32);
-    Texto.Caption := 'Saem o programa, os atalhos e a inicialização com o Windows. ' +
-      'Se o Polpad estiver aberto, ele será fechado.';
+    Texto.Height := ScaleY(48);
+    Texto.Caption := 'O Polpad será removido deste computador: saem o programa, ' +
+      'os atalhos e a inicialização com o Windows. Se ele estiver aberto, ' +
+      'será fechado.';
 
     Caixa := TNewCheckBox.Create(Form);
     Caixa.Parent := Form;
-    Caixa.Left := ScaleX(20);
-    Caixa.Top := ScaleY(88);
-    Caixa.Width := Form.ClientWidth - ScaleX(40);
+    Caixa.Left := Esquerda;
+    Caixa.Top := ScaleY(116);
+    Caixa.Width := Largura;
     Caixa.Caption := 'Remover também meus perfis, ícones e configurações';
     Caixa.Checked := False;
 
     Dica := TNewStaticText.Create(Form);
     Dica.Parent := Form;
-    Dica.Left := ScaleX(38);
-    Dica.Top := ScaleY(110);
-    Dica.Width := Form.ClientWidth - ScaleX(58);
+    Dica.Left := Esquerda + ScaleX(18);
+    Dica.Top := ScaleY(138);
+    Dica.Width := Largura - ScaleX(18);
     Dica.AutoSize := False;
     Dica.WordWrap := True;
-    Dica.Height := ScaleY(30);
+    Dica.Height := ScaleY(32);
     Dica.Font.Color := clGrayText;
     Dica.Caption := 'Deixe desmarcado para encontrar seus perfis se instalar o Polpad de novo.';
 
     Cancelar := TNewButton.Create(Form);
     Cancelar.Parent := Form;
     Cancelar.Width := ScaleX(90);
-    Cancelar.Height := ScaleY(26);
-    Cancelar.Left := Form.ClientWidth - ScaleX(20) - Cancelar.Width;
-    Cancelar.Top := Form.ClientHeight - ScaleY(16) - Cancelar.Height;
+    Cancelar.Height := ScaleY(28);
+    Cancelar.Left := Form.ClientWidth - ScaleX(24) - Cancelar.Width;
+    Cancelar.Top := Form.ClientHeight - ScaleY(22) - Cancelar.Height;
     Cancelar.Caption := 'Cancelar';
     Cancelar.ModalResult := mrCancel;
     Cancelar.Cancel := True;
@@ -214,7 +244,7 @@ begin
     Remover := TNewButton.Create(Form);
     Remover.Parent := Form;
     Remover.Width := ScaleX(110);
-    Remover.Height := ScaleY(26);
+    Remover.Height := ScaleY(28);
     Remover.Left := Cancelar.Left - ScaleX(10) - Remover.Width;
     Remover.Top := Cancelar.Top;
     Remover.Caption := 'Desinstalar';
