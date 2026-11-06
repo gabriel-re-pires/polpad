@@ -59,6 +59,19 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(seguranca.to_version, "restauração")
         self.assertTrue((self.dados / "icons" / "a.png").is_file())
 
+    def test_restaurar_a_mais_antiga_com_cinco_guardadas(self):
+        for i in range(5):
+            backup.create(
+                self.dados, f"0.5.{i}", "0.6.0", now=self.agora + timedelta(minutes=i)
+            )
+        mais_antiga = backup.list_backups(self.dados)[-1]
+        (mais_antiga.path / "config.json").write_text("A", encoding="utf-8")
+        backup.restore(
+            self.dados, mais_antiga, "0.6.0", now=self.agora + timedelta(minutes=9)
+        )
+        self.assertEqual((self.dados / "config.json").read_text(encoding="utf-8"), "A")
+        self.assertEqual(len(backup.list_backups(self.dados)), 5)
+
     def test_backup_json_corrompido_e_ignorado(self):
         backup.create(self.dados, "0.5.0", "0.5.1", now=self.agora)
         estragada = self.dados / "backups" / "estragada"

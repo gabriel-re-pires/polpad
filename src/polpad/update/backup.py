@@ -39,8 +39,13 @@ def backups_dir(data_dir: Path) -> Path:
 
 
 def create(
-    data_dir: Path, from_version: str, to_version: str, now: datetime | None = None
+    data_dir: Path,
+    from_version: str,
+    to_version: str,
+    now: datetime | None = None,
+    protect: Path | None = None,
 ) -> Backup:
+    """Copia os perfis. ``protect`` é poupada da limpeza das antigas."""
     created = now or datetime.now()
     name = f"{created:%Y%m%d-%H%M%S}-{from_version}-para-{to_version}"
     path = backups_dir(data_dir) / name
@@ -55,7 +60,7 @@ def create(
         shutil.copytree(data_dir / ICONS, path / ICONS)
     meta = {"created": created.isoformat(), "from": from_version, "to": to_version}
     (path / META).write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-    _prune(data_dir)
+    _prune(data_dir, protect)
     return Backup(path, created, from_version, to_version)
 
 
@@ -86,15 +91,18 @@ def restore(
     data_dir: Path, backup: Backup, current_version: str, now: datetime | None = None
 ) -> Backup:
     """Volta os perfis de ``backup``, guardando antes o estado atual."""
-    safety = create(data_dir, current_version, "restauração", now=now)
+    # A cópia restaurada pode ser a mais antiga: só sai da lista depois.
+    safety = create(data_dir, current_version, "restauração", now, backup.path)
     if (backup.path / CONFIG).is_file():
         shutil.copy2(backup.path / CONFIG, data_dir / CONFIG)
     if (backup.path / ICONS).is_dir():
         shutil.rmtree(data_dir / ICONS, ignore_errors=True)
         shutil.copytree(backup.path / ICONS, data_dir / ICONS)
+    _prune(data_dir)
     return safety
 
 
-def _prune(data_dir: Path) -> None:
+def _prune(data_dir: Path, protect: Path | None = None) -> None:
     for old in list_backups(data_dir)[KEEP:]:
-        shutil.rmtree(old.path, ignore_errors=True)
+        if old.path != protect:
+            shutil.rmtree(old.path, ignore_errors=True)
