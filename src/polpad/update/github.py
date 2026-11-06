@@ -31,6 +31,10 @@ class GitHubError(RuntimeError):
     """Falha ao consultar ou baixar algo do GitHub."""
 
 
+class DownloadCancelledError(GitHubError):
+    """Download interrompido a pedido (o Polpad está saindo)."""
+
+
 def releases_url() -> str:
     return os.environ.get(RELEASES_URL_ENV) or RELEASES_URL
 
@@ -92,8 +96,12 @@ def download(
     expected_size: int = 0,
     on_progress: Callable[[int], None] | None = None,
     session: Any | None = None,
+    cancel: Callable[[], bool] | None = None,
 ) -> Path:
     """Baixa ``url`` para ``destination``.
+
+    ``cancel`` é consultado a cada bloco: devolvendo ``True``, o download
+    para com :class:`DownloadCancelledError` e nada fica gravado.
 
     Escreve primeiro em ``.part`` e só renomeia com o tamanho conferido: um
     download interrompido nunca vira um arquivo aparentemente válido.
@@ -107,6 +115,8 @@ def download(
         written = 0
         with partial.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=_CHUNK):
+                if cancel is not None and cancel():
+                    raise DownloadCancelledError("Download cancelado.")
                 if not chunk:
                     continue
                 handle.write(chunk)

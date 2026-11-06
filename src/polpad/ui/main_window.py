@@ -955,11 +955,26 @@ class MainWindow(QMainWindow):
                     5000,
                 )
             return
+        super().closeEvent(event)
+        self._shutdown_and_quit()
+
+    def quit_for_switch(self) -> None:
+        """Sai para uma troca de versão, restauração ou reinício.
+
+        Passa pelo mesmo encerramento de "Sair" (para o enlace serial, grava
+        a configuração, apaga o aviso), mas sem instalar a atualização
+        pendente: quem chama já cuidou da troca.
+        """
+        self._quitting = True
+        self._save_layout()
+        self.hide()
+        self._shutdown_and_quit()
+
+    def _shutdown_and_quit(self) -> None:
         self._tray.hide()
         if self._updates is not None:
             self._updates.shutdown()
         self._core.shutdown()
-        super().closeEvent(event)
         # Com setQuitOnLastWindowClosed(False), o loop de eventos precisa
         # ser encerrado explicitamente.
         from PySide6.QtWidgets import QApplication

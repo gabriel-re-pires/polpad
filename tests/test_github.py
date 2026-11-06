@@ -64,6 +64,17 @@ class DownloadTest(unittest.TestCase):
             self.assertFalse(destino.exists())
             self.assertFalse(destino.with_name("arquivo.bin.part").exists())
 
+    def test_download_cancelado_para_e_nao_deixa_arquivo(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            destino = Path(pasta) / "arquivo.bin"
+            cliente = ClienteFalso(RespostaFalsa(conteudo=b"1234"))
+            with self.assertRaises(github.DownloadCancelledError):
+                github.download(
+                    "https://x/a", destino, 4, session=cliente, cancel=lambda: True
+                )
+            self.assertFalse(destino.exists())
+            self.assertFalse(destino.with_name("arquivo.bin.part").exists())
+
     def test_download_completo(self):
         with tempfile.TemporaryDirectory() as pasta:
             destino = Path(pasta) / "sub" / "arquivo.bin"

@@ -92,6 +92,11 @@ class UpdateToast(QWidget):
         self.close_button.clicked.connect(self._on_close)
         layout.addWidget(self.close_button, 0, Qt.AlignTop)
 
+    @property
+    def current_action(self) -> str:
+        """O que o botão faz agora: "update", "install_now", "retry" ou ""."""
+        return self._action
+
     # ------------------------------------------------------------ estados
 
     def show_available(self, version: str, current: str) -> None:

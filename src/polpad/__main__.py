@@ -40,7 +40,7 @@ def main() -> int:
     from .single_instance import SingleInstance
     from .ui.main_window import MainWindow
     from .ui.style import build_stylesheet
-    from .ui.update_controller import UpdateController, startup
+    from .ui.update_controller import UpdateController, safe_startup
 
     log_path = logs.setup()
     logging.getLogger(__name__).info(
@@ -73,7 +73,7 @@ def main() -> int:
         return 0
 
     # Antes da janela: confere a troca anterior e instala a pendente.
-    result = startup(
+    result = safe_startup(
         default_data_dir(), __version__, frozen, release_instance=instance.release
     )
     if result.action == "exit":
@@ -81,7 +81,12 @@ def main() -> int:
 
     core = MacropadApp()
     window = MainWindow(core)
-    updates = UpdateController(core.store, window, release_instance=instance.release)
+    updates = UpdateController(
+        core.store,
+        window,
+        release_instance=instance.release,
+        quit_app=window.quit_for_switch,
+    )
     window.set_update_controller(updates)
     instance.activated.connect(window.present)
     if not start_minimized:

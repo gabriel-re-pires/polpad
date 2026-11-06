@@ -167,3 +167,14 @@ class InstanciaUnicaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LancamentoTest(unittest.TestCase):
+    def test_processo_novo_nao_herda_o_ambiente_do_pyinstaller(self):
+        """O Polpad reaberto por si mesmo precisa desempacotar a própria
+        versão, não reusar a pasta temporária da instância que vai sair."""
+        with mock.patch.object(installer.subprocess, "Popen") as popen:
+            installer.launch_detached(["/opt/polpad", "--apos-atualizacao"])
+        env = popen.call_args.kwargs["env"]
+        self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))

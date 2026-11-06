@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -40,6 +41,8 @@ Launcher = Callable[[list[str]], None]
 #: Verificação periódica: confere a cada hora se já passaram 24 h.
 TICK_MS = 60 * 60 * 1000
 INSTALL_LOG = "instalacao.log"
+#: Ao sair, quanto esperar por uma consulta ou download em andamento.
+JOB_WAIT_MS = 20_000
 
 
 # ---------------------------------------------------------------- troca
@@ -147,6 +150,17 @@ def startup(
     return StartupResult("continue", outcome, version)
 
 
+def safe_startup(
+    data_dir: Path, current: str, frozen: bool, **kwargs: Any
+) -> StartupResult:
+    """:func:`startup`, mas o atualizador nunca impede o Polpad de abrir."""
+    try:
+        return startup(data_dir, current, frozen, **kwargs)
+    except Exception:
+        log.exception("falha nas tarefas de atualização da abertura; seguindo")
+        return StartupResult("continue")
+
+
 def _discard_pending(data_dir: Path) -> None:
     path = state_path(data_dir)
     st = UpdateState.load(path)
@@ -157,16 +171,31 @@ def _discard_pending(data_dir: Path) -> None:
 
 
 def _clean_downloads(data_dir: Path) -> None:
+    """Apaga os downloads antigos; um arquivo preso (o log que o instalador
+    ainda segura, por exemplo) fica para a próxima vez."""
     folder = updates_dir(data_dir)
     if not folder.is_dir():
         return
     for item in folder.iterdir():
         if item.name == state_path(data_dir).name:
             continue
-        if item.is_dir():
-            shutil.rmtree(item, ignore_errors=True)
-        else:
-            item.unlink(missing_ok=True)
+        try:
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                item.unlink(missing_ok=True)
+        except OSError:
+            log.debug("não foi possível apagar %s agora", item, exc_info=True)
+
+
+def _valid_pending(pending: Pending | None, version: str) -> bool:
+    """A pendente é desta versão e o arquivo continua íntegro."""
+    if pending is None or pending.version != version:
+        return False
+    try:
+        return installer.sha256_file(Path(pending.path)) == pending.sha256
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------- tarefas
@@ -213,6 +242,7 @@ class UpdateController(QObject):
         quit_app: Callable[[], None] | None = None,
         runner: Runner | None = None,
         release_instance: Callable[[], None] | None = None,
+        kind: Callable[[], str] = installer.install_kind,
     ) -> None:
         super().__init__(parent)
         self.store = store
@@ -221,7 +251,6 @@ class UpdateController(QObject):
         self.update: releases.AppRelease | None = None
         self.releases: list[releases.AppRelease] = []
         self.error = ""
-        self.busy = ""
         self._parent = parent
         self._session = session
         self._now = now
@@ -231,8 +260,17 @@ class UpdateController(QObject):
         self._quit = quit_app or QApplication.quit
         self._runner = runner or self._thread_runner
         self._release_instance = release_instance
+        self._kind = kind
         self._dismissed = False
         self._retry: releases.AppRelease | None = None
+        # Uma tarefa de cada tipo por vez.
+        self._checking = False
+        self._checking_for_user = False
+        self._user_update: releases.AppRelease | None = None
+        self._auto_download: str | None = None
+        self._install_when_ready = False
+        self._switching = False
+        self._cancel = threading.Event()
         self._jobs: set[_Job] = set()
         self._dialog: VersionDialog | None = None
         self._progress = _Progress()
@@ -247,6 +285,17 @@ class UpdateController(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
         self._timer.timeout.connect(self.tick)
+
+    @property
+    def busy(self) -> str:
+        if self._user_update is not None:
+            return f"Baixando a versão {self._user_update.version}…"
+        if self._checking and self._checking_for_user:
+            return "Verificando…"
+        return ""
+
+    def _development(self) -> bool:
+        return self._kind() == "desenvolvimento"
 
     # ------------------------------------------------------------ ciclo
 
@@ -273,13 +322,17 @@ class UpdateController(QObject):
             )
 
     def shutdown(self) -> None:
-        """Apaga o aviso e a página antes do ``QApplication``.
+        """Para as tarefas e apaga o aviso e a página antes do ``QApplication``.
 
-        O aviso é uma janela sem dono: deixado para o encerramento do
-        Python, ele seria destruído depois do ``QApplication`` e o processo
-        cairia ao sair (access violation).
+        Uma ``QThread`` destruída ainda rodando aborta o processo, e o aviso,
+        uma janela sem dono, destruído depois do ``QApplication`` derruba o
+        processo ao sair (access violation).
         """
+        self._cancel.set()
         self._timer.stop()
+        for job in list(self._jobs):
+            if not job.wait(JOB_WAIT_MS):
+                log.warning("tarefa do atualizador não terminou a tempo")
         for widget in (self.toast, self._dialog):
             if widget is not None and shiboken6.isValid(widget):
                 widget.close()
@@ -288,13 +341,17 @@ class UpdateController(QObject):
 
     def before_quit(self) -> None:
         """Ao sair pela bandeja: instala a pendente sem reabrir."""
+        if self._development():
+            return
         st = UpdateState.load(state_path(self.data_dir))
         pending = st.pending
-        exists = pending is not None and Path(pending.path).is_file()
-        if (
-            pending is None
-            or policy.pending_action(pending, self.current, exists) != "install"
-        ):
+        if pending is None:
+            return
+        if not self.store.settings.update_auto:
+            _discard_pending(self.data_dir)
+            return
+        exists = Path(pending.path).is_file()
+        if policy.pending_action(pending, self.current, exists) != "install":
             return
         try:
             self._apply(
@@ -307,28 +364,30 @@ class UpdateController(QObject):
     # ------------------------------------------------------------ verificação
 
     def check_now(self, user: bool) -> None:
-        if self.busy:
+        if self._checking:
             return
-        self.busy = "Verificando…" if user else ""
+        self._checking = True
+        self._checking_for_user = user
         self._refresh_dialog()
 
         def done(found: list[releases.AppRelease]) -> None:
-            self.busy = ""
+            self._checking = False
             self.error = ""
             self.releases = found
             self._save_last_check()
             self.update = policy.available_update(found, self.current)
             update = self.update
-            if update is not None and self.store.settings.update_auto:
-                self._download_pending(update)
-            elif update is not None and policy.should_notify(
-                update, self.store.settings.update_notify, self._dismissed
-            ):
-                self.toast.show_available(update.version, self.current)
+            if update is not None and not self._development():
+                if self.store.settings.update_auto:
+                    self._ensure_pending(update)
+                elif policy.should_notify(
+                    update, self.store.settings.update_notify, self._dismissed
+                ):
+                    self.toast.show_available(update.version, self.current)
             self._refresh_dialog()
 
         def failed(message: str) -> None:
-            self.busy = ""
+            self._checking = False
             log.info("verificação de atualização falhou: %s", message)
             if user:
                 self.error = message
@@ -339,39 +398,85 @@ class UpdateController(QObject):
     # ------------------------------------------------------------ instalação
 
     def begin_update(self, release: releases.AppRelease) -> None:
-        if self.busy:
+        if self._development() or self._switching or self._user_update is not None:
             return
-        self.busy = f"Baixando a versão {release.version}…"
+        self._user_update = release
         self._retry = release
+        self.error = ""
         self.toast.show_available(release.version, self.current)
         self.toast.show_progress("Baixando… 0%")
         self._refresh_dialog()
 
-        def done(result: tuple[Path, str]) -> None:
-            self.toast.show_progress("Instalando…")
-            try:
-                self._apply(release.version, result[0], relaunch=True, sha256=result[1])
-            except (installer.InstallError, OSError) as exc:
-                failed(str(exc))
-                return
-            self._quit()
-
-        def failed(message: str) -> None:
-            self.busy = ""
-            self.error = message
-            self.toast.show_error(message)
-            self._refresh_dialog()
+        if self._auto_download == release.version:
+            # O download automático desta versão já está em andamento.
+            self._install_when_ready = True
+            return
+        pending = UpdateState.load(state_path(self.data_dir)).pending
+        if pending is not None and _valid_pending(pending, release.version):
+            self._finish_user_update(release, (Path(pending.path), pending.sha256))
+            return
 
         self._runner(
             lambda: installer.prepare(
-                release, self.data_dir, self._progress.changed.emit, self._session
+                release,
+                self.data_dir,
+                self._progress.changed.emit,
+                self._session,
+                self._cancel.is_set,
             ),
-            done,
-            failed,
+            lambda result: self._finish_user_update(release, result),
+            self._fail_user_update,
         )
 
-    def _download_pending(self, release: releases.AppRelease) -> None:
+    def _finish_user_update(
+        self, release: releases.AppRelease, result: tuple[Path, str]
+    ) -> None:
+        if self._cancel.is_set():
+            self._user_update = None
+            return
+        self.toast.show_progress("Instalando…")
+        try:
+            self._apply(release.version, result[0], relaunch=True, sha256=result[1])
+        except (installer.InstallError, OSError) as exc:
+            self._fail_user_update(str(exc))
+            return
+        self._quit()
+
+    def _fail_user_update(self, message: str) -> None:
+        self._user_update = None
+        self.error = message
+        self.toast.show_error(message)
+        self._refresh_dialog()
+
+    def _ensure_pending(self, release: releases.AppRelease) -> None:
+        """Atualização automática: deixa esta versão baixada e conferida."""
+        if (
+            self._development()
+            or self._switching
+            or self._user_update is not None
+            or self._auto_download == release.version
+        ):
+            return
+        pending = UpdateState.load(state_path(self.data_dir)).pending
+        if _valid_pending(pending, release.version):
+            if self.store.settings.update_notify:
+                self.toast.show_pending(release.version)
+            return
+        self._auto_download = release.version
+
         def done(result: tuple[Path, str]) -> None:
+            self._auto_download = None
+            if self._install_when_ready:
+                self._install_when_ready = False
+                self._finish_user_update(release, result)
+                return
+            if (
+                self._cancel.is_set()
+                or self._switching
+                or not self.store.settings.update_auto
+            ):
+                result[0].unlink(missing_ok=True)
+                return
             path = state_path(self.data_dir)
             st = UpdateState.load(path)
             st.pending = Pending(release.version, str(result[0]), result[1])
@@ -381,17 +486,25 @@ class UpdateController(QObject):
             self._refresh_dialog()
 
         def failed(message: str) -> None:
+            self._auto_download = None
+            if self._install_when_ready:
+                self._install_when_ready = False
+                self._fail_user_update(message)
+                return
             log.info("download automático falhou: %s", message)
 
         self._runner(
-            lambda: installer.prepare(release, self.data_dir, None, self._session),
+            lambda: installer.prepare(
+                release, self.data_dir, None, self._session, self._cancel.is_set
+            ),
             done,
             failed,
         )
 
     def _install_pending_now(self) -> None:
-        st = UpdateState.load(state_path(self.data_dir))
-        pending = st.pending
+        if self._development() or self._switching:
+            return
+        pending = UpdateState.load(state_path(self.data_dir)).pending
         if pending is None:
             return
         try:
@@ -407,19 +520,24 @@ class UpdateController(QObject):
     def _apply(
         self, target: str, package: Path, relaunch: bool, sha256: str | None
     ) -> None:
-        apply_switch(
-            self.data_dir,
-            self.current,
-            target,
-            package,
-            relaunch,
-            platform=self._platform,
-            executable=self._executable,
-            launcher=self._launcher,
-            release_instance=self._release_instance,
-            now=self._now,
-            expected_sha256=sha256,
-        )
+        self._switching = True
+        try:
+            apply_switch(
+                self.data_dir,
+                self.current,
+                target,
+                package,
+                relaunch,
+                platform=self._platform,
+                executable=self._executable,
+                launcher=self._launcher,
+                release_instance=self._release_instance,
+                now=self._now,
+                expected_sha256=sha256,
+            )
+        except BaseException:
+            self._switching = False
+            raise
 
     # ------------------------------------------------------------ opções
 
@@ -432,8 +550,15 @@ class UpdateController(QObject):
     def set_auto(self, enabled: bool) -> None:
         self.store.settings.update_auto = enabled
         self.store.save()
-        if enabled and self.update is not None:
-            self._download_pending(self.update)
+        if enabled:
+            if self.update is not None:
+                self._ensure_pending(self.update)
+            return
+        # Desligada: o que já foi baixado não é mais instalado sozinho.
+        _discard_pending(self.data_dir)
+        if self.toast.current_action == "install_now":
+            self.toast.hide()
+        self._refresh_dialog()
 
     # ------------------------------------------------------------ página
 
@@ -454,15 +579,14 @@ class UpdateController(QObject):
         self._dialog.show()
         self._dialog.raise_()
         self._dialog.activateWindow()
-        if not self.releases and not self.busy:
+        if not self.releases and not self._checking:
             self.check_now(user=True)
 
     def view(self) -> VersionView:
-        last = self._last_check()
         return VersionView(
             current=self.current,
-            kind=installer.install_kind(),
-            last_check=last,
+            kind=self._kind(),
+            last_check=self._last_check(),
             update=self.update,
             releases=self.releases,
             backups=backup.list_backups(self.data_dir),
@@ -473,11 +597,14 @@ class UpdateController(QObject):
         )
 
     def _refresh_dialog(self) -> None:
-        if self._dialog is not None:
+        if self._dialog is not None and shiboken6.isValid(self._dialog):
             self._dialog.set_view(self.view())
 
     def _restore(self, item: backup.Backup) -> None:
         backup.restore(self.data_dir, item, self.current, now=self._now())
+        # Quem sai grava a configuração em memória: recarregada, ela é a
+        # restaurada, e não a de antes.
+        self.store.load()
         self._restart([])
 
     def _open_backups(self) -> None:

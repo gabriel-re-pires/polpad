@@ -139,6 +139,35 @@ jobs:
           HOME="$casa" XDG_DATA_HOME= "$casa/.local/bin/polpad" --remover-do-menu
           test ! -e "$casa/.local/bin/polpad"
 
+      - name: Conferir a troca e o relançamento (Linux)
+        if: runner.os == 'Linux'
+        # Uma atualização pendente "9.9.9" apontando para o próprio pacote:
+        # ao abrir, o Polpad troca o executável e se reabre sozinho. A nova
+        # instância precisa ficar rodando (ela não pode reaproveitar a pasta
+        # temporária da que saiu).
+        run: |
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/config-troca"
+          dados="$XDG_CONFIG_HOME/Polpad"
+          mkdir -p "$dados/updates/v9.9.9" "$RUNNER_TEMP/troca"
+          cp dist/Polpad "$RUNNER_TEMP/troca/Polpad"
+          tar -czf "$dados/updates/v9.9.9/Polpad-linux-x86_64.tar.gz" \
+            -C dist Polpad
+          pacote="$dados/updates/v9.9.9/Polpad-linux-x86_64.tar.gz"
+          soma=$(sha256sum "$pacote" | cut -d' ' -f1)
+          printf '{"last_check": null, "pending": {"version": "9.9.9", "path": "%s", "sha256": "%s"}, "switch": null}' \
+            "$pacote" "$soma" > "$dados/updates/estado.json"
+          Xvfb :97 & sleep 2
+          export DISPLAY=:97
+          timeout 30 "$RUNNER_TEMP/troca/Polpad" || true
+          sleep 15
+          if ! pgrep -f "troca/Polpad --apos-atualizacao" >/dev/null; then
+            echo "::error::o Polpad não continuou rodando depois de se reabrir"
+            cat "$dados/logs/polpad.log" || true
+            exit 1
+          fi
+          grep -c "iniciando" "$dados/logs/polpad.log"
+          pkill -f "troca/Polpad" || true
+
       - name: Instalar, abrir e desinstalar (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

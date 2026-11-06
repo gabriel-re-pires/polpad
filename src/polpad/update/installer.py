@@ -45,6 +45,7 @@ def prepare(
     data_dir: Path,
     on_progress: Callable[[int], None] | None = None,
     session: Any | None = None,
+    cancel: Callable[[], bool] | None = None,
 ) -> tuple[Path, str]:
     """Baixa o arquivo da versão e confere o SHA-256 com o do release."""
     if not release.installable or release.asset_url is None:
@@ -55,7 +56,12 @@ def prepare(
     try:
         expected = releases.expected_sha256(release, session)
         github.download(
-            release.asset_url, destination, release.asset_size, on_progress, session
+            release.asset_url,
+            destination,
+            release.asset_size,
+            on_progress,
+            session,
+            cancel,
         )
     except github.GitHubError as exc:
         raise InstallError(str(exc)) from exc
@@ -87,13 +93,23 @@ def windows_command(installer: Path, log_path: Path, relaunch: bool) -> list[str
 
 
 def launch_detached(argv: list[str]) -> None:
-    """Abre um processo que sobrevive ao fechamento do Polpad."""
+    """Abre um processo que sobrevive ao fechamento do Polpad.
+
+    ``PYINSTALLER_RESET_ENVIRONMENT`` faz o executável aberto se comportar
+    como uma instância nova: sem isso, o Polpad empacotado em arquivo único
+    (Linux) reusaria a pasta temporária desta instância — apagada quando
+    ela sai — em vez de desempacotar a própria versão. O instalador do
+    Windows repassa o mesmo ambiente ao Polpad que ele reabre.
+    """
     log.info("abrindo: %s", argv)
+    env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
     if sys.platform == "win32":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(argv, creationflags=flags, close_fds=True)  # noqa: S603
+        subprocess.Popen(argv, creationflags=flags, close_fds=True, env=env)  # noqa: S603
     else:
-        subprocess.Popen(argv, start_new_session=True, close_fds=True)  # noqa: S603
+        subprocess.Popen(  # noqa: S603
+            argv, start_new_session=True, close_fds=True, env=env
+        )
 
 
 def swap_linux(package: Path, target: Path) -> None:

@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -75,6 +76,25 @@ def _sincrono(funcao, ao_terminar, ao_falhar):
         ao_terminar(resultado)
 
 
+class Adiado:
+    """Executor que guarda as tarefas para o teste rodar quando quiser."""
+
+    def __init__(self):
+        self.fila = []
+
+    def __call__(self, funcao, ao_terminar, ao_falhar):
+        self.fila.append((funcao, ao_terminar, ao_falhar))
+
+    def rodar(self):
+        funcao, ao_terminar, ao_falhar = self.fila.pop(0)
+        _sincrono(funcao, ao_terminar, ao_falhar)
+
+
+ASSET_051 = (
+    "https://github.com/gabriel-re-pires/polpad/releases/download/v0.5.1/Polpad-Setup.exe"
+)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -84,7 +104,9 @@ class Base(unittest.TestCase):
         self.processos: list[list[str]] = []
         self.saidas: list[str] = []
 
-    def _controlador(self, cliente=None, atual="0.5.0", auto=False):
+    def _controlador(
+        self, cliente=None, atual="0.5.0", auto=False, runner=None, tipo="windows"
+    ):
         store = Store(self.dados, vault=CofreFalso())
         store.settings.update_auto = auto
         self.janela = QWidget()
@@ -99,7 +121,8 @@ class Base(unittest.TestCase):
             executable=str(self.dados / "Polpad.exe"),
             launcher=self.processos.append,
             quit_app=lambda: self.saidas.append("sair"),
-            runner=_sincrono,
+            runner=runner or _sincrono,
+            kind=lambda: tipo,
         )
         self.addCleanup(controlador.shutdown)
         return controlador
@@ -303,3 +326,130 @@ class AtualizacaoTest(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StartupRobustoTest(Base):
+    def test_log_preso_pelo_instalador_nao_impede_a_abertura(self):
+        log = self.dados / "updates" / "instalacao.log"
+        log.parent.mkdir(parents=True)
+        log.write_text("x", encoding="utf-8")
+        marca = state.Switch("0.5.0", "0.5.1", AGORA.isoformat())
+        state.UpdateState(switch=marca).save(state.state_path(self.dados))
+        original = Path.unlink
+
+        def unlink(caminho, missing_ok=False):
+            if caminho.name == "instalacao.log":
+                raise PermissionError(32, "em uso")
+            return original(caminho, missing_ok=missing_ok)
+
+        with mock.patch.object(Path, "unlink", unlink):
+            resultado = update_controller.startup(
+                self.dados, "0.5.1", frozen=True, launcher=self.processos.append
+            )
+        self.assertEqual(resultado.outcome, "ok")
+
+    def test_safe_startup_nunca_impede_a_abertura(self):
+        with mock.patch.object(
+            update_controller, "startup", side_effect=OSError("disco cheio")
+        ):
+            resultado = update_controller.safe_startup(self.dados, "0.5.0", True)
+        self.assertEqual(resultado.action, "continue")
+
+
+class DesenvolvimentoTest(Base):
+    def test_desenvolvimento_nao_mostra_aviso_nem_instala(self):
+        controlador = self._controlador(tipo="desenvolvimento")
+        controlador.check_now(user=True)
+        self.assertEqual(controlador.update.version, "0.5.1")
+        self.assertFalse(controlador.toast.isVisible())
+        controlador.begin_update(controlador.update)
+        self.assertEqual(self.processos, [])
+        self.assertEqual(self.saidas, [])
+
+
+class AutomaticoTest(Base):
+    def test_desligar_automatico_descarta_a_pendente(self):
+        controlador = self._controlador(auto=True)
+        controlador.check_now(user=False)
+        arquivo = Path(self._estado().pending.path)
+        controlador.set_auto(False)
+        self.assertIsNone(self._estado().pending)
+        self.assertFalse(arquivo.exists())
+        self.assertFalse(controlador.toast.isVisible())
+
+    def test_download_que_termina_depois_de_desligar_nao_fica_pendente(self):
+        adiado = Adiado()
+        controlador = self._controlador(auto=True, runner=adiado)
+        controlador.check_now(user=False)
+        adiado.rodar()  # consulta
+        controlador.set_auto(False)
+        adiado.rodar()  # download automático
+        self.assertIsNone(self._estado().pending)
+
+    def test_download_automatico_nao_se_repete(self):
+        cliente = _cliente()
+        controlador = self._controlador(cliente, auto=True)
+        controlador.check_now(user=False)
+        controlador.scheduled_check()
+        controlador.set_auto(True)
+        self.assertEqual(cliente.chamadas.count(ASSET_051), 1)
+
+    def test_um_download_automatico_por_vez(self):
+        adiado = Adiado()
+        controlador = self._controlador(auto=True, runner=adiado)
+        controlador.check_now(user=False)
+        adiado.rodar()  # consulta → agenda o download
+        controlador.check_now(user=False)
+        adiado.rodar()  # segunda consulta: não agenda outro download
+        self.assertEqual(len(adiado.fila), 1)
+
+    def test_atualizar_durante_download_automatico_usa_o_mesmo(self):
+        adiado = Adiado()
+        controlador = self._controlador(auto=True, runner=adiado)
+        controlador.check_now(user=False)
+        adiado.rodar()  # consulta → agenda o download automático
+        controlador.begin_update(controlador.update)
+        self.assertEqual(len(adiado.fila), 1)
+        adiado.rodar()  # o download automático termina
+        self.assertIn("/ATUALIZACAO", self.processos[0])
+        self.assertEqual(self.saidas, ["sair"])
+
+    def test_verificacao_nao_libera_atualizacao_em_andamento(self):
+        adiado = Adiado()
+        controlador = self._controlador(runner=adiado)
+        controlador.check_now(user=False)
+        adiado.rodar()
+        controlador.begin_update(controlador.update)
+        controlador.check_now(user=True)
+        adiado.rodar()  # download do usuário (primeiro da fila)
+        adiado.rodar()  # consulta
+        controlador.begin_update(controlador.update)
+        self.assertEqual(adiado.fila, [])
+        self.assertEqual(len(self.processos), 1)
+
+
+class EncerramentoDuranteDownloadTest(Base):
+    def test_shutdown_cancela_o_download_em_andamento(self):
+        adiado = Adiado()
+        controlador = self._controlador(auto=True, runner=adiado)
+        controlador.check_now(user=False)
+        adiado.rodar()
+        controlador.shutdown()
+        adiado.rodar()
+        self.assertIsNone(self._estado().pending)
+        self.assertEqual(list((self.dados / "updates").rglob("*.exe")), [])
+
+
+class RestaurarTest(Base):
+    def test_restaurar_recarrega_os_perfis_antes_de_sair(self):
+        import json
+
+        controlador = self._controlador()
+        copia = backup.create(self.dados, "0.5.0", "0.5.1", now=AGORA)
+        (copia.path / "config.json").write_text(
+            json.dumps({"settings": {"update_notify": False}, "profiles": []}),
+            encoding="utf-8",
+        )
+        controlador._restore(copia)
+        self.assertFalse(controlador.store.settings.update_notify)
+        self.assertEqual(self.saidas, ["sair"])
