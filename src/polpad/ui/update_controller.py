@@ -57,8 +57,18 @@ def apply_switch(
     launcher: Launcher = installer.launch_detached,
     release_instance: Callable[[], None] | None = None,
     now: Callable[[], datetime] = datetime.now,
+    expected_sha256: str | None = None,
 ) -> None:
-    """Backup, marca de troca e a troca em si. Quem chama encerra o Polpad."""
+    """Backup, marca de troca e a troca em si. Quem chama encerra o Polpad.
+
+    ``expected_sha256`` é a soma conferida no download: o arquivo fica numa
+    pasta gravável e pode ter mudado até a hora de instalar, então é
+    conferido de novo antes de ser executado.
+    """
+    if expected_sha256 and installer.sha256_file(package) != expected_sha256:
+        raise installer.InstallError(
+            "O arquivo da atualização mudou depois do download. Baixe de novo."
+        )
     backup.create(data_dir, current, target, now=now())
     path = state_path(data_dir)
     st = UpdateState.load(path)
@@ -128,14 +138,22 @@ def startup(
                 launcher=launcher,
                 release_instance=release_instance,
                 now=now,
+                expected_sha256=pending.sha256,
             )
             return StartupResult("exit", outcome, version)
         except (installer.InstallError, OSError):
             log.exception("falha ao instalar a atualização pendente")
-            st = UpdateState.load(path)
-            st.pending = None
-            st.save(path)
+            _discard_pending(data_dir)
     return StartupResult("continue", outcome, version)
+
+
+def _discard_pending(data_dir: Path) -> None:
+    path = state_path(data_dir)
+    st = UpdateState.load(path)
+    if st.pending is not None:
+        Path(st.pending.path).unlink(missing_ok=True)
+        st.pending = None
+        st.save(path)
 
 
 def _clean_downloads(data_dir: Path) -> None:
@@ -279,9 +297,12 @@ class UpdateController(QObject):
         ):
             return
         try:
-            self._apply(pending.version, Path(pending.path), relaunch=False)
+            self._apply(
+                pending.version, Path(pending.path), relaunch=False, sha256=pending.sha256
+            )
         except (installer.InstallError, OSError):
             log.exception("falha ao instalar a atualização ao sair")
+            _discard_pending(self.data_dir)
 
     # ------------------------------------------------------------ verificação
 
@@ -329,7 +350,7 @@ class UpdateController(QObject):
         def done(result: tuple[Path, str]) -> None:
             self.toast.show_progress("Instalando…")
             try:
-                self._apply(release.version, result[0], relaunch=True)
+                self._apply(release.version, result[0], relaunch=True, sha256=result[1])
             except (installer.InstallError, OSError) as exc:
                 failed(str(exc))
                 return
@@ -370,16 +391,22 @@ class UpdateController(QObject):
 
     def _install_pending_now(self) -> None:
         st = UpdateState.load(state_path(self.data_dir))
-        if st.pending is None:
+        pending = st.pending
+        if pending is None:
             return
         try:
-            self._apply(st.pending.version, Path(st.pending.path), relaunch=True)
+            self._apply(
+                pending.version, Path(pending.path), relaunch=True, sha256=pending.sha256
+            )
         except (installer.InstallError, OSError) as exc:
+            _discard_pending(self.data_dir)
             self.toast.show_error(str(exc))
             return
         self._quit()
 
-    def _apply(self, target: str, package: Path, relaunch: bool) -> None:
+    def _apply(
+        self, target: str, package: Path, relaunch: bool, sha256: str | None
+    ) -> None:
         apply_switch(
             self.data_dir,
             self.current,
@@ -391,6 +418,7 @@ class UpdateController(QObject):
             launcher=self._launcher,
             release_instance=self._release_instance,
             now=self._now,
+            expected_sha256=sha256,
         )
 
     # ------------------------------------------------------------ opções

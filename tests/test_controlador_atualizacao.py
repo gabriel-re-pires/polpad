@@ -114,7 +114,8 @@ class StartupTest(Base):
         if existe:
             arquivo.parent.mkdir(parents=True)
             arquivo.write_bytes(CONTEUDO)
-        state.UpdateState(pending=state.Pending(versao, str(arquivo), "abc")).save(
+        soma = hashlib.sha256(CONTEUDO).hexdigest()
+        state.UpdateState(pending=state.Pending(versao, str(arquivo), soma)).save(
             state.state_path(self.dados)
         )
         return arquivo
@@ -140,6 +141,15 @@ class StartupTest(Base):
         self.assertIsNone(estado.pending)
         self.assertEqual(self.processos[0][0], str(arquivo))
         self.assertIn("/ATUALIZACAO", self.processos[0])
+
+    def test_pendente_alterada_no_disco_nao_e_executada(self):
+        arquivo = self._pendente("0.5.1")
+        arquivo.write_bytes(b"outro programa")
+        resultado = self._startup("0.5.0")
+        self.assertEqual(resultado.action, "continue")
+        self.assertEqual(self.processos, [])
+        self.assertIsNone(self._estado().pending)
+        self.assertIsNone(self._estado().switch)
 
     def test_startup_descarta_pendente_velha(self):
         arquivo = self._pendente("0.5.0")
@@ -247,6 +257,13 @@ class AtualizacaoTest(Base):
             controlador.toast.title.text(),
             "O Polpad 0.5.1 será instalado quando você sair",
         )
+        self.assertEqual(self.processos, [])
+
+    def test_sair_nao_executa_pendente_alterada(self):
+        controlador = self._controlador(auto=True)
+        controlador.check_now(user=False)
+        Path(self._estado().pending.path).write_bytes(b"outro programa")
+        controlador.before_quit()
         self.assertEqual(self.processos, [])
 
     def test_sair_instala_a_pendente_sem_reabrir(self):
