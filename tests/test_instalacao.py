@@ -78,9 +78,11 @@ class LinhaDeComandoTest(unittest.TestCase):
     def test_linha_de_comando_windows(self):
         log = Path("C:/Users/João Silva/AppData/Roaming/Polpad/updates/instalacao.log")
         argv = installer.windows_command(Path("C:/x/Polpad-Setup.exe"), log, True)
+        # /SILENT: sem as páginas do assistente, mas com a janela de
+        # progresso, para ninguém achar que o Polpad sumiu e abri-lo de novo.
         self.assertEqual(
             argv[1:5],
-            ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
+            ["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
         )
         self.assertEqual(argv[-1], "/ATUALIZACAO")
         logs = [a for a in argv if a.startswith("/LOG=")]
@@ -90,6 +92,8 @@ class LinhaDeComandoTest(unittest.TestCase):
     def test_sem_reabrir(self):
         argv = installer.windows_command(Path("a.exe"), Path("b.log"), False)
         self.assertNotIn("/ATUALIZACAO", argv)
+        # Ao sair pela bandeja a pessoa quis fechar: nada de janela.
+        self.assertIn("/VERYSILENT", argv)
 
 
 def _pacote(pasta: Path, conteudo: bytes, membro: str = "Polpad") -> Path:

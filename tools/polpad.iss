@@ -60,6 +60,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Fecha o Polpad aberto antes de trocar os arquivos; quem reabre é o [Run].
 CloseApplications=yes
 RestartApplications=no
+; Enquanto o instalador roda, o Polpad aberto pelo atalho sai na hora em
+; vez de achar a pasta _internal pela metade (ver update/setup_lock.py).
+SetupMutex=PolpadInstalando
 Compression=lzma2
 SolidCompression=yes
 

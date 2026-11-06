@@ -1,9 +1,9 @@
 """Baixa uma versão conferindo a soma e faz a troca.
 
-Windows: o instalador do Inno Setup roda em silêncio e troca os arquivos
-depois que o Polpad se fecha. Linux: o executável novo é extraído ao lado
-do atual e renomeado por cima dele — a troca é instantânea e o processo em
-execução não é afetado.
+Windows: o instalador do Inno Setup troca os arquivos depois que o Polpad
+se fecha (com a janela de progresso, ao atualizar pelo aviso). Linux: o
+executável novo é extraído ao lado do atual e renomeado por cima dele — a
+troca é instantânea e o processo em execução não é afetado.
 """
 
 from __future__ import annotations
@@ -80,9 +80,15 @@ def prepare(
 
 
 def windows_command(installer: Path, log_path: Path, relaunch: bool) -> list[str]:
+    """Linha de comando do instalador.
+
+    Atualizando pelo aviso (``relaunch``), o instalador mostra a janela de
+    progresso: sem ela o Polpad some por alguns segundos e a pessoa tenta
+    abri-lo de novo no meio da troca. Ao sair pela bandeja, em silêncio.
+    """
     argv = [
         str(installer),
-        "/VERYSILENT",
+        "/SILENT" if relaunch else "/VERYSILENT",
         "/SUPPRESSMSGBOXES",
         "/NORESTART",
         "/CLOSEAPPLICATIONS",
