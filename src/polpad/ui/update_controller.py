@@ -12,6 +12,7 @@ programas.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import sys
 import threading
@@ -24,7 +25,13 @@ from typing import Any, Literal
 import shiboken6
 from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
 from .. import APP_NAME, __version__
 from ..core.store import Store
@@ -629,6 +636,84 @@ class UpdateController(QObject):
             "funcionando de onde está.",
         )
         self._refresh_dialog()
+
+    # ------------------------------------------------------------ desinstalar
+
+    def _windows_uninstaller(self) -> Path:
+        # O Inno Setup grava o desinstalador na pasta do programa.
+        return Path(self._executable).parent / "unins000.exe"
+
+    def uninstall_support(self) -> tuple[bool, str]:
+        """Se a Zona de risco pode desinstalar e o texto que explica."""
+        kind = self._kind()
+        if kind == "desenvolvimento":
+            return False, "Versão de desenvolvimento: não há instalação para remover."
+        if kind == "windows":
+            if self._windows_uninstaller().is_file():
+                return True, "Abre o desinstalador do Windows."
+            return False, (
+                "Desinstalador não encontrado. Remova pelas Configurações do "
+                "Windows → Aplicativos."
+            )
+        if kind == "linux_menu":
+            return True, "Remove o Polpad do menu de aplicativos e fecha o programa."
+        if self._platform == "win32":
+            return False, (
+                "Este Polpad não está instalado: para removê-lo, apague a pasta dele."
+            )
+        return False, (
+            "Este Polpad não está instalado no menu: para removê-lo, apague o "
+            "arquivo baixado."
+        )
+
+    def uninstall(self) -> None:
+        if not self.uninstall_support()[0]:
+            return
+        if self._kind() == "windows":
+            # A tela do desinstalador confirma e fecha o Polpad; se a pessoa
+            # cancelar, ele continua aberto.
+            self._launcher([str(self._windows_uninstaller())])
+            return
+        remove_profiles = self._ask_linux_uninstall()
+        if remove_profiles is None:
+            return
+        linux_install.uninstall()
+        if remove_profiles:
+            # Ao sair o Polpad ainda grava a configuração: a pasta só é
+            # apagada depois que este processo terminar.
+            self._launcher(
+                [
+                    "/bin/sh",
+                    "-c",
+                    'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; rm -rf "$2"',
+                    "sh",
+                    str(os.getpid()),
+                    str(self.data_dir),
+                ]
+            )
+        QMessageBox.information(
+            self._parent, APP_NAME, "O Polpad foi removido do seu computador."
+        )
+        self._quit()
+
+    def _ask_linux_uninstall(self) -> bool | None:
+        """``None`` se cancelou; senão, se também apaga os perfis."""
+        box = QMessageBox(self._parent)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Desinstalar o Polpad")
+        box.setText(
+            "O Polpad será removido do menu de aplicativos e da inicialização "
+            "automática, e será fechado."
+        )
+        profiles = QCheckBox("Remover também meus perfis, ícones e configurações")
+        box.setCheckBox(profiles)
+        ok: QPushButton = box.addButton("Desinstalar", QMessageBox.DestructiveRole)
+        cancel = box.addButton("Cancelar", QMessageBox.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not ok:
+            return None
+        return profiles.isChecked()
 
     def _restart(self, args: list[str], executable: str | None = None) -> None:
         program = executable or self._executable

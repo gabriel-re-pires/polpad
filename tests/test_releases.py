@@ -48,6 +48,23 @@ class ListaTest(unittest.TestCase):
             _listar([_completa()], "linux")[0].asset_name, "Polpad-linux-x86_64.tar.gz"
         )
 
+    def test_nomes_com_o_sistema(self):
+        somas = {"name": "SHA256SUMS.txt", "size": 1, "browser_download_url": SOMAS_URL}
+        nova = _release(
+            "v0.6.0",
+            _anexo("Polpad-Windows-Instalador.exe"),
+            _anexo("Polpad-Linux-x86_64.tar.gz"),
+            # Cópias com os nomes antigos, para a 0.5.0 se atualizar.
+            _anexo("Polpad-Setup.exe"),
+            _anexo("Polpad-linux-x86_64.tar.gz"),
+            somas,
+        )
+        windows = _listar([nova], "win32")[0]
+        self.assertEqual(windows.asset_name, "Polpad-Windows-Instalador.exe")
+        self.assertEqual(windows.asset_url, "https://x/Polpad-Windows-Instalador.exe")
+        linux = _listar([nova], "linux")[0]
+        self.assertEqual(linux.asset_name, "Polpad-Linux-x86_64.tar.gz")
+
     def test_041_nao_e_instalavel(self):
         antiga = _release(
             "v0.4.1", _anexo("Polpad.exe"), _anexo("Polpad-linux-x86_64.tar.gz")

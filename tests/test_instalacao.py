@@ -92,10 +92,10 @@ class LinhaDeComandoTest(unittest.TestCase):
         self.assertNotIn("/ATUALIZACAO", argv)
 
 
-def _pacote(pasta: Path, conteudo: bytes) -> Path:
+def _pacote(pasta: Path, conteudo: bytes, membro: str = "Polpad") -> Path:
     caminho = pasta / "Polpad-linux-x86_64.tar.gz"
     with tarfile.open(caminho, "w:gz") as tar:
-        info = tarfile.TarInfo("Polpad")
+        info = tarfile.TarInfo(membro)
         info.size = len(conteudo)
         tar.addfile(info, io.BytesIO(conteudo))
     return caminho
@@ -116,6 +116,11 @@ class TrocaLinuxTest(unittest.TestCase):
         self.assertFalse((self.alvo.parent / ".polpad.novo").exists())
         if sys.platform != "win32":
             self.assertEqual(self.alvo.stat().st_mode & 0o777, 0o755)
+
+    def test_troca_linux_com_a_pasta_polpad_linux(self):
+        pacote = _pacote(self.pasta, b"\x7fELF novo", "Polpad-Linux/Polpad")
+        installer.swap_linux(pacote, self.alvo)
+        self.assertEqual(self.alvo.read_bytes(), b"\x7fELF novo")
 
     def test_troca_linux_recusa_nao_elf(self):
         with self.assertRaises(installer.InstallError):
