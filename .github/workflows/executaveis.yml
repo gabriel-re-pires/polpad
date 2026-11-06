@@ -1,13 +1,15 @@
-# Gera o Polpad para Windows e Linux e anexa os dois ao release.
+# Gera o Polpad para Windows e Linux e anexa os arquivos ao release.
 #
-# * Tag vX.Y.Z enviada (git push origin v0.5.0): testa, gera os dois
-#   executáveis, confere que eles abrem e os anexa ao release da tag. Se o
-#   release ainda não existe, cria um RASCUNHO com eles: escreva as notas,
-#   anexe o firmware-*.bin e publique. (O aplicativo baixa o firmware do
-#   último release publicado; um rascunho não aparece para ele.)
+# * Tag vX.Y.Z enviada (git push origin v0.5.0): testa, gera o instalador
+#   do Windows e o pacote do Linux, confere que os dois instalam e abrem, e
+#   os anexa ao release da tag com o SHA256SUMS.txt. Se o release ainda não
+#   existe, cria um RASCUNHO: escreva as notas, anexe o firmware-*.bin se
+#   houver firmware novo e publique como pré-lançamento para testar; tirando
+#   o pré-lançamento, a versão vira a oficial. (O aplicativo só enxerga
+#   releases publicados que não são pré-lançamento.)
 # * Execução manual (aba Actions → Executáveis → Run workflow) ou PR que
-#   mexe no empacotamento: só gera os executáveis, para baixar em
-#   "Artifacts" e testar. Não mexe nos releases.
+#   mexe no empacotamento: só gera os arquivos, para baixar em "Artifacts" e
+#   testar. Não mexe nos releases.
 #
 # O PyInstaller não gera executável para outro sistema: cada um sai de um
 # runner do próprio sistema.
@@ -25,6 +27,7 @@ on:
       - .github/workflows/executaveis.yml
       - tools/build_exe.py
       - tools/entrypoint.py
+      - tools/polpad.iss
       - pyproject.toml
 
 permissions:
@@ -44,7 +47,7 @@ jobs:
         include:
           - nome: Windows
             os: windows-latest
-            arquivo: Polpad.exe
+            arquivo: Polpad-Setup.exe
           - nome: Linux
             # A glibc do sistema em que o executável é gerado é a mínima que
             # ele exige. O 22.04 (glibc 2.35) cobre Ubuntu 22.04+, Debian 12,
@@ -81,6 +84,13 @@ jobs:
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
             libxcb-xinerama0 libxcb-xkb1
 
+      - name: Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if [ ! -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            choco install innosetup -y --no-progress
+          fi
+
       - name: Instalar dependências
         run: python -m pip install -e ".[dev]"
 
@@ -95,7 +105,12 @@ jobs:
           fi
 
       - name: Gerar o executável
-        run: python tools/build_exe.py
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            python tools/build_exe.py --instalador
+          else
+            python tools/build_exe.py
+          fi
 
       - name: Conferir que o executável abre (Linux)
         if: runner.os == 'Linux'
@@ -112,20 +127,43 @@ jobs:
             exit 1
           fi
 
-      - name: Conferir que o executável abre (Windows)
+      - name: Conferir a instalação no menu (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          casa="$RUNNER_TEMP/casa"
+          mkdir -p "$casa"
+          HOME="$casa" XDG_DATA_HOME= ./dist/Polpad --instalar-no-menu
+          test -x "$casa/.local/bin/polpad"
+          grep -q "^Exec=$casa/.local/bin/polpad" \
+            "$casa/.local/share/applications/polpad.desktop"
+          HOME="$casa" XDG_DATA_HOME= "$casa/.local/bin/polpad" --remover-do-menu
+          test ! -e "$casa/.local/bin/polpad"
+
+      - name: Instalar, abrir e desinstalar (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $pasta = Join-Path $env:RUNNER_TEMP "pp"
+          $inst = Start-Process -FilePath "dist/Polpad-Setup.exe" -Wait -PassThru `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$pasta`""
+          if ($inst.ExitCode -ne 0) { Write-Error "instalação falhou ($($inst.ExitCode))"; exit 1 }
+          $exe = Join-Path $pasta "Polpad.exe"
+          if (-not (Test-Path $exe)) { Write-Error "Polpad.exe não foi instalado"; exit 1 }
           $env:QT_QPA_PLATFORM = "offscreen"
-          $env:APPDATA = "$env:RUNNER_TEMP\config"
-          $p = Start-Process -FilePath dist\Polpad.exe -PassThru
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP "config"
+          $p = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 20
           if ($p.HasExited) {
-            Get-Content "$env:APPDATA\Polpad\logs\polpad.log" -ErrorAction SilentlyContinue
+            Get-Content (Join-Path $env:APPDATA "Polpad/logs/polpad.log") -ErrorAction SilentlyContinue
             Write-Error "o Polpad fechou sozinho (código $($p.ExitCode))"
             exit 1
           }
           Stop-Process -Id $p.Id -Force
+          Start-Sleep -Seconds 2
+          Start-Process -FilePath (Join-Path $pasta "unins000.exe") -Wait `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          Start-Sleep -Seconds 3
+          if (Test-Path $exe) { Write-Error "a desinstalação deixou o Polpad.exe"; exit 1 }
 
       - name: Empacotar (Linux)
         if: runner.os == 'Linux'
@@ -135,7 +173,7 @@ jobs:
 
       - name: Empacotar (Windows)
         if: runner.os == 'Windows'
-        run: cp dist/Polpad.exe "${{ matrix.arquivo }}"
+        run: cp dist/Polpad-Setup.exe "${{ matrix.arquivo }}"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -156,7 +194,13 @@ jobs:
           path: pacotes
           merge-multiple: true
 
-      - name: Anexar os executáveis
+      - name: Somas SHA-256
+        working-directory: pacotes
+        run: |
+          sha256sum Polpad-Setup.exe Polpad-linux-x86_64.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Anexar os arquivos
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -170,15 +214,17 @@ jobs:
             gh release create "$TAG" pacotes/* --draft --verify-tag \
               --title "Polpad ${TAG#v}" \
               --notes "$(cat <<'NOTAS'
-          Rascunho criado pelo workflow **Executáveis**. Antes de publicar,
-          escreva as novidades e anexe o `firmware-*.bin`: o aplicativo grava o
-          firmware do último release publicado.
+          Rascunho criado pelo workflow **Executáveis**. Escreva as novidades,
+          anexe o `firmware-*.bin` se houver firmware novo e publique como
+          **pré-lançamento** para testar. Tirando o pré-lançamento, a versão
+          vira a oficial e chega aos usuários pelo aviso de atualização.
 
           ## Arquivos
 
-          - `Polpad.exe` — Windows 10/11. Arquivo único, sem instalar nada.
+          - `Polpad-Setup.exe` — instalador do Windows 10/11.
           - `Polpad-linux-x86_64.tar.gz` — Linux (X11, x86-64). Extraia e abra
-            o `Polpad`.
+            o `Polpad`; ele se oferece para entrar no menu de aplicativos.
+          - `SHA256SUMS.txt` — somas que o Polpad confere antes de instalar.
           NOTAS
           )"
           fi

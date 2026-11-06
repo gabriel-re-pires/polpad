@@ -3,10 +3,12 @@
     .venv\\Scripts\\python tools\\build_exe.py      (Windows)
     .venv/bin/python tools/build_exe.py           (Linux)
 
-Produz ``dist/Polpad.exe`` no Windows e ``dist/Polpad`` no Linux — um
-arquivo único, sem console, que roda sem Python instalado. É o que se
-leva para a apresentação. No Linux, ``tools/instalar_linux.py`` coloca o
-executável no menu de aplicativos, com o ícone.
+Produz ``dist/Polpad/Polpad.exe`` (uma pasta) no Windows e ``dist/Polpad``
+(arquivo único) no Linux, sem console e sem precisar de Python. No
+Windows, ``--instalador`` gera também ``dist/Polpad-Setup.exe`` com o Inno
+Setup 6 (``tools/polpad.iss``), que é o que se publica. No Linux,
+``dist/Polpad --instalar-no-menu`` coloca o executável no menu de
+aplicativos, com o ícone.
 
 Com o aplicativo aberto, o Windows não deixa sobrescrever o ``.exe`` em
 execução e o PyInstaller falha com "Acesso negado". Feche o aplicativo
@@ -33,6 +35,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -69,8 +73,16 @@ def main() -> int:
             "em execução, e o PyInstaller falha com “Acesso negado”."
         ),
     )
+    parser.add_argument(
+        "--instalador",
+        action="store_true",
+        help="Windows: depois do executável, gera dist/Polpad-Setup.exe (Inno Setup 6)",
+    )
     args = parser.parse_args()
     destino = args.destino.resolve()
+    if args.instalador and not WINDOWS:
+        raise SystemExit("--instalador é só para Windows")
+    iscc = _iscc() if args.instalador else None
 
     if importlib.util.find_spec("PyInstaller") is None:
         raise SystemExit(
@@ -100,7 +112,10 @@ def main() -> int:
             "PyInstaller",
             "--noconfirm",
             "--clean",
-            "--onefile",
+            # Windows: pasta, instalada pelo Inno Setup (abre mais rápido e
+            # gera menos falsos alarmes de antivírus). Linux: arquivo único,
+            # trocado inteiro pelo atualizador.
+            "--onedir" if WINDOWS else "--onefile",
             "--windowed",
             "--name",
             NOME,
@@ -145,13 +160,52 @@ def main() -> int:
         "empacotando com o PyInstaller",
     )
 
-    exe = destino / (f"{NOME}.exe" if WINDOWS else NOME)
+    exe = destino / NOME / f"{NOME}.exe" if WINDOWS else destino / NOME
     if not exe.exists():
         raise SystemExit("o PyInstaller terminou sem produzir o executável")
-    print(f"\nPronto: {exe} ({exe.stat().st_size / 1024 / 1024:.1f} MB)")
+    print(f"\nPronto: {exe}")
+    if iscc is not None:
+        _run(
+            [
+                iscc,
+                f"/DVersao={_versao()}",
+                f"/DOrigem={destino / NOME}",
+                f"/DIcone={ICONE}",
+                f"/O{destino}",
+                str(RAIZ / "tools" / "polpad.iss"),
+            ],
+            "gerando o instalador com o Inno Setup",
+        )
+        setup = destino / f"{NOME}-Setup.exe"
+        print(f"Pronto: {setup} ({setup.stat().st_size / 1024 / 1024:.1f} MB)")
     if not WINDOWS:
-        print("Para pôr no menu: .venv/bin/python tools/instalar_linux.py")
+        print("Para pôr no menu: dist/Polpad --instalar-no-menu")
     return 0
+
+
+def _versao() -> str:
+    init = (RAIZ / "src" / "polpad" / "__init__.py").read_text(encoding="utf-8")
+    achado = re.search(r'__version__\s*=\s*"([^"]+)"', init)
+    if not achado:
+        raise SystemExit("versão não encontrada em src/polpad/__init__.py")
+    return achado.group(1)
+
+
+def _iscc() -> str:
+    """Compilador do Inno Setup 6: no PATH ou nas pastas de instalação."""
+    achado = shutil.which("iscc") or shutil.which("ISCC")
+    if achado:
+        return achado
+    for base in (os.environ.get("PROGRAMFILES(X86)"), os.environ.get("LOCALAPPDATA")):
+        if not base:
+            continue
+        for pasta in ("Inno Setup 6", os.path.join("Programs", "Inno Setup 6")):
+            candidato = Path(base) / pasta / "ISCC.exe"
+            if candidato.is_file():
+                return str(candidato)
+    raise SystemExit(
+        "Inno Setup 6 não encontrado. Instale com: winget install JRSoftware.InnoSetup"
+    )
 
 
 if __name__ == "__main__":
