@@ -6,7 +6,30 @@ import logging
 import sys
 
 
+def _menu_command(argv: list[str]) -> int | None:
+    """``--instalar-no-menu`` / ``--remover-do-menu`` (Linux), sem abrir janela."""
+    if "--instalar-no-menu" not in argv and "--remover-do-menu" not in argv:
+        return None
+    if not sys.platform.startswith("linux"):
+        print("Disponível só no Linux.", file=sys.stderr)
+        return 2
+    from pathlib import Path
+
+    from .update import linux_install
+
+    if "--remover-do-menu" in argv:
+        linux_install.uninstall()
+        return 0
+    linux_install.install(Path(sys.executable))
+    print(f"Instalado em {linux_install.binary_path()}")
+    return 0
+
+
 def main() -> int:
+    menu = _menu_command(sys.argv)
+    if menu is not None:
+        return menu
+
     from PySide6.QtWidgets import QApplication
 
     from . import APP_NAME, ORG_NAME, __version__
