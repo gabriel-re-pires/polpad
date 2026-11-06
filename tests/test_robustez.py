@@ -610,6 +610,10 @@ class HandshakeTest(unittest.TestCase):
             self._dados = resposta
             self.escrito = b""
 
+        @property
+        def in_waiting(self):
+            return len(self._dados)
+
         def write(self, dados):
             self.escrito += dados
 
@@ -734,3 +738,63 @@ class IconeTest(unittest.TestCase):
         largura = max(colunas_acesas) - min(colunas_acesas) + 1
         self.assertEqual(altura, models.SCREEN_H)
         self.assertEqual(largura, models.SCREEN_H)  # quadrada: limitada pela altura
+
+
+class SerialComoPyserial:
+    """Imita o pyserial: ``read(n)`` só volta antes do timeout se já houver
+    ``n`` bytes; com menos, espera o timeout inteiro e devolve o que tem."""
+
+    def __init__(self, dados: bytes, timeout: float = 0.5):
+        self.is_open = True
+        self.timeout = timeout
+        self._dados = dados
+        self.escrito = b""
+
+    @property
+    def in_waiting(self) -> int:
+        return len(self._dados)
+
+    def write(self, dados):
+        self.escrito += dados
+
+    def read(self, n=1):
+        if len(self._dados) < n:
+            time.sleep(self.timeout)
+        dados, self._dados = self._dados[:n], self._dados[n:]
+        return dados
+
+    def close(self):
+        self.is_open = False
+
+
+class LeituraSemAtrasoTest(unittest.TestCase):
+    """Uma tecla tem ~30 bytes. Ler pedindo 256 fazia cada aperto esperar o
+    timeout de 0,5 s da porta antes de chegar ao Polpad."""
+
+    def test_tecla_chega_sem_esperar_o_timeout(self):
+        ser = SerialComoPyserial(b'{"t":"key","k":4,"e":"down"}\n')
+        chegou: list[float] = []
+
+        def ao_receber(_mensagem):
+            chegou.append(time.monotonic())
+            link._running = False
+
+        link = SerialLink(on_message=ao_receber, on_state=lambda c, p: None)
+        link._running = True
+        inicio = time.monotonic()
+        with (
+            mock.patch("polpad.device.link.serial.Serial", return_value=ser),
+            mock.patch.object(link, "_handshake", return_value=(True, b"", [])),
+        ):
+            link._connect_and_read("COM_FALSA")
+        self.assertEqual(len(chegou), 1)
+        self.assertLess(chegou[0] - inicio, 0.05)
+
+    def test_handshake_nao_espera_o_timeout(self):
+        ser = SerialComoPyserial(b'{"t":"pong"}\n{"t":"hello"}\n')
+        link = SerialLink(on_message=lambda m: None, on_state=lambda c, p: None)
+        inicio = time.monotonic()
+        ok, _, pendentes = link._handshake(ser)
+        self.assertTrue(ok)
+        self.assertEqual([m["t"] for m in pendentes], ["pong", "hello"])
+        self.assertLess(time.monotonic() - inicio, 0.05)
