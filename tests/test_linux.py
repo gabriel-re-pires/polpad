@@ -5,6 +5,8 @@ ele funcione também no Linux (X11), onde os códigos de tecla, a
 inicialização automática e a abertura de programas seguem outras regras.
 """
 
+import contextlib
+import io
 import os
 import stat
 import sys
@@ -102,8 +104,9 @@ class InicializacaoAutomaticaXdgTest(unittest.TestCase):
         autostart.apply(False)
 
     def test_executavel_empacotado(self):
-        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
-            sys, "executable", "/home/eu/.local/bin/polpad"
+        with (
+            mock.patch.object(sys, "frozen", True, create=True),
+            mock.patch.object(sys, "executable", "/home/eu/.local/bin/polpad"),
         ):
             self.assertIn(
                 "Exec=/home/eu/.local/bin/polpad --minimized\n",
@@ -130,15 +133,16 @@ class CampoExecTest(unittest.TestCase):
 
 
 class TerminalVisivelTest(unittest.TestCase):
-    """"Abrir em um terminal visível" usava o ``cmd /k`` do Windows; no
+    """ "Abrir em um terminal visível" usava o ``cmd /k`` do Windows; no
     Linux o comando rodava escondido."""
 
     def test_usa_o_primeiro_terminal_disponivel(self):
         def which(nome):
             return f"/usr/bin/{nome}" if nome == "xfce4-terminal" else None
 
-        with mock.patch.object(builtin.shutil, "which", which), mock.patch.dict(
-            os.environ, {"SHELL": "/bin/bash"}
+        with (
+            mock.patch.object(builtin.shutil, "which", which),
+            mock.patch.dict(os.environ, {"SHELL": "/bin/bash"}),
         ):
             argv = builtin._terminal_argv("git pull", "/home/eu/projeto dois")
         self.assertEqual(argv[:4], ["/usr/bin/xfce4-terminal", "-x", "/bin/bash", "-c"])
@@ -191,8 +195,10 @@ class AbrirAlvoNoLinuxTest(unittest.TestCase):
         self.assertEqual(argv, ["code", str(Path.home() / "projeto")])
 
     def test_alvo_inexistente(self):
-        with mock.patch.object(builtin.shutil, "which", return_value=None), \
-                self.assertRaises(ActionError):
+        with (
+            mock.patch.object(builtin.shutil, "which", return_value=None),
+            self.assertRaises(ActionError),
+        ):
             builtin._launch_argv("programa-que-nao-existe")
 
 
@@ -228,3 +234,88 @@ class PermissaoDaPortaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstalacaoNoMenuTest(unittest.TestCase):
+    """O executável baixado se instala no menu sem o código-fonte."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        casa = Path(self._tmp.name) / "casa"
+        casa.mkdir()
+        self.casa = casa
+        ambiente = {
+            "HOME": str(casa),
+            "XDG_DATA_HOME": str(casa / ".local" / "share"),
+            "XDG_CONFIG_HOME": str(casa / ".config"),
+        }
+        patcher = mock.patch.dict(os.environ, ambiente)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        home = mock.patch.object(Path, "home", return_value=casa)
+        home.start()
+        self.addCleanup(home.stop)
+        self.origem = Path(self._tmp.name) / "Polpad"
+        self.origem.write_bytes(b"\x7fELF")
+
+    def test_instala_e_remove(self):
+        from polpad.update import linux_install
+
+        linux_install.install(self.origem)
+        binario = self.casa / ".local" / "bin" / "polpad"
+        desktop = self.casa / ".local" / "share" / "applications" / "polpad.desktop"
+        self.assertEqual(linux_install.binary_path(), binario)
+        self.assertEqual(binario.read_bytes(), b"\x7fELF")
+        exec_esperado = f"Exec={autostart.exec_line([str(binario)])}"
+        self.assertIn(exec_esperado, desktop.read_text(encoding="utf-8"))
+        icones = list(linux_install.icon_paths().values())
+        self.assertEqual(len(icones), 7)
+        self.assertTrue(all(p.is_file() for p in icones))
+        self.assertTrue(linux_install.is_installed())
+
+        autostart.desktop_file().parent.mkdir(parents=True)
+        autostart.desktop_file().write_text("x", encoding="utf-8")
+        linux_install.uninstall()
+        self.assertFalse(binario.exists())
+        self.assertFalse(desktop.exists())
+        self.assertFalse(any(p.exists() for p in icones))
+        self.assertFalse(autostart.desktop_file().exists())
+        self.assertFalse(linux_install.is_installed())
+
+    @unittest.skipUnless(LINUX, "permissão de execução POSIX")
+    def test_binario_executavel(self):
+        from polpad.update import linux_install
+
+        linux_install.install(self.origem)
+        modo = linux_install.binary_path().stat().st_mode
+        self.assertTrue(modo & stat.S_IXUSR)
+
+    def test_running_from_menu(self):
+        from polpad.update import linux_install
+
+        binario = str(self.casa / ".local" / "bin" / "polpad")
+        with mock.patch.object(sys, "executable", binario):
+            self.assertTrue(linux_install.running_from_menu())
+        with mock.patch.object(sys, "executable", str(self.origem)):
+            self.assertFalse(linux_install.running_from_menu())
+
+
+class OpcoesDoMenuTest(unittest.TestCase):
+    def test_sem_opcao_segue_para_a_janela(self):
+        from polpad import __main__ as entrada
+
+        self.assertIsNone(entrada._menu_command(["Polpad"]))
+
+    def test_instalar_no_menu_usa_o_proprio_executavel(self):
+        from polpad import __main__ as entrada
+
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch("polpad.update.linux_install.install") as instalar,
+            mock.patch.object(sys, "executable", "/opt/polpad/Polpad"),
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                codigo = entrada._menu_command(["Polpad", "--instalar-no-menu"])
+            self.assertEqual(codigo, 0)
+        instalar.assert_called_once_with(Path("/opt/polpad/Polpad"))

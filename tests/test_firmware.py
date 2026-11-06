@@ -10,52 +10,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
 
 import requests
 
 from polpad.device import firmware_release, flasher
 
+from .apoio import ClienteFalso, RespostaFalsa
+
 ESP_HEADER = bytes([0xE9, 0x00, 0x02, 0x03])
-
-
-class RespostaFalsa:
-    def __init__(
-        self,
-        payload: Any = None,
-        conteudo: bytes = b"",
-        erro: Exception | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        self._payload = payload
-        self._conteudo = conteudo
-        self._erro = erro
-        self.headers = headers or {}
-
-    def raise_for_status(self) -> None:
-        if self._erro is not None:
-            raise self._erro
-
-    def json(self) -> Any:
-        return self._payload
-
-    def iter_content(self, chunk_size: int = 1) -> Any:
-        for inicio in range(0, len(self._conteudo), chunk_size):
-            yield self._conteudo[inicio : inicio + chunk_size]
-
-
-class ClienteFalso:
-    """Substitui o ``requests`` nos testes (nenhuma rede é tocada)."""
-
-    def __init__(self, resposta: RespostaFalsa | Exception) -> None:
-        self._resposta = resposta
-        self.chamadas: list[str] = []
-
-    def get(self, url: str, **kwargs: Any) -> RespostaFalsa:
-        self.chamadas.append(url)
-        if isinstance(self._resposta, Exception):
-            raise self._resposta
-        return self._resposta
 
 
 def _release_payload(tag: str = "v1.2.0", asset: str = "firmware-1.2.0.bin") -> dict:
@@ -150,18 +112,32 @@ class MensagensDeErroTest(unittest.TestCase):
 
 class ReleaseTest(unittest.TestCase):
     def test_escolhe_o_binario_do_firmware_entre_os_anexos(self):
-        cliente = ClienteFalso(RespostaFalsa(payload=_release_payload()))
+        cliente = ClienteFalso(RespostaFalsa(payload=[_release_payload()]))
         release = firmware_release.latest_release(session=cliente)
         self.assertEqual(release.asset_name, "firmware-1.2.0.bin")
         self.assertEqual(release.version, "1.2.0")
         self.assertEqual(release.tag, "v1.2.0")
 
     def test_release_sem_firmware_anexado_explica_o_problema(self):
-        payload = {"tag_name": "v1.0.0", "assets": [{"name": "app.exe", "size": 1}]}
+        payload = [{"tag_name": "v1.0.0", "assets": [{"name": "app.exe", "size": 1}]}]
         cliente = ClienteFalso(RespostaFalsa(payload=payload))
         with self.assertRaises(firmware_release.ReleaseError) as caso:
             firmware_release.latest_release(session=cliente)
         self.assertIn("firmware*.bin", str(caso.exception))
+
+    def test_firmware_do_release_mais_recente_que_tem_um(self):
+        """Publicar uma versão só do aplicativo não pode quebrar a gravação."""
+        sem_firmware = {
+            "tag_name": "v0.5.0",
+            "assets": [
+                {"name": "Polpad-Setup.exe", "size": 1, "browser_download_url": "x"}
+            ],
+        }
+        payload = [sem_firmware, _release_payload("v0.4.1", "firmware-2.0.2.bin")]
+        cliente = ClienteFalso(RespostaFalsa(payload=payload))
+        release = firmware_release.latest_release(session=cliente)
+        self.assertEqual(release.tag, "v0.4.1")
+        self.assertEqual(release.version, "2.0.2")
 
     def test_falha_de_rede_vira_mensagem_amigavel(self):
         cliente = ClienteFalso(requests.ConnectionError("sem rota"))
@@ -170,7 +146,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("internet", str(caso.exception))
 
     def test_resposta_invalida_nao_estoura_traceback(self):
-        cliente = ClienteFalso(RespostaFalsa(payload=["lista", "inesperada"]))
+        cliente = ClienteFalso(RespostaFalsa(payload={"inesperado": 1}))
         with self.assertRaises(firmware_release.ReleaseError):
             firmware_release.latest_release(session=cliente)
 
@@ -250,7 +226,7 @@ class VersaoDoAnexoTest(unittest.TestCase):
     """
 
     def _release(self, tag, asset):
-        cliente = ClienteFalso(RespostaFalsa(payload=_release_payload(tag, asset)))
+        cliente = ClienteFalso(RespostaFalsa(payload=[_release_payload(tag, asset)]))
         return firmware_release.latest_release(session=cliente)
 
     def test_versao_vem_do_anexo_e_nao_da_tag(self):

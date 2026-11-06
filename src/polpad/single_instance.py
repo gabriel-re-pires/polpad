@@ -10,8 +10,9 @@ de quem clica no atalho enquanto o aplicativo está oculto na bandeja.
 from __future__ import annotations
 
 import logging
+import time
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 SERVER_NAME = "Polpad-instancia-unica"
@@ -29,19 +30,30 @@ class SingleInstance(QObject):
         super().__init__(parent)
         self._server: QLocalServer | None = None
 
-    def try_acquire(self) -> bool:
+    def try_acquire(self, wait_s: float = 0.0) -> bool:
         """``True`` se esta é a única instância; ``False`` se já havia outra.
 
         Quando devolve ``False``, a instância que já roda foi avisada e
         deve mostrar sua janela — o chamador só precisa encerrar.
+
+        ``wait_s`` é para o Polpad reaberto depois de uma atualização: a
+        instância antiga pode levar alguns instantes para sair, e a nova
+        espera por ela em vez de se encerrar.
         """
-        socket = QLocalSocket()
-        socket.connectToServer(SERVER_NAME)
-        if socket.waitForConnected(_TIMEOUT_MS):
-            socket.write(b"activate")
-            socket.waitForBytesWritten(_TIMEOUT_MS)
-            socket.disconnectFromServer()
-            return False
+        deadline = time.monotonic() + wait_s
+        while True:
+            socket = QLocalSocket()
+            socket.connectToServer(SERVER_NAME)
+            if not socket.waitForConnected(_TIMEOUT_MS):
+                break
+            if time.monotonic() >= deadline:
+                socket.write(b"activate")
+                socket.waitForBytesWritten(_TIMEOUT_MS)
+                socket.disconnectFromServer()
+                return False
+            socket.abort()
+            QCoreApplication.processEvents()
+            time.sleep(0.2)
 
         # Ninguém atendeu. Pode ser um socket órfão de um encerramento
         # anormal: removê-lo é seguro justamente porque a conexão falhou.
@@ -61,6 +73,12 @@ class SingleInstance(QObject):
 
         self._server = server
         return True
+
+    def release(self) -> None:
+        """Deixa de ser a instância única (antes de abrir outra)."""
+        if self._server is not None:
+            self._server.close()
+            self._server = None
 
     def _on_new_connection(self) -> None:
         if self._server is None:

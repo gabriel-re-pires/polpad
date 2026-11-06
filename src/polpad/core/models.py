@@ -300,6 +300,11 @@ class Settings:
     obs_host: str = "localhost"
     obs_port: int = 4455
     obs_password: str = ""
+    # Atualizações: aviso de versão nova e instalação automática.
+    update_notify: bool = True
+    update_auto: bool = False
+    # Linux: perguntar se o Polpad deve se instalar no menu de aplicativos.
+    linux_install_prompt: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -312,6 +317,9 @@ class Settings:
             "obs_host": self.obs_host,
             "obs_port": self.obs_port,
             "obs_password": self.obs_password,
+            "update_notify": self.update_notify,
+            "update_auto": self.update_auto,
+            "linux_install_prompt": self.linux_install_prompt,
         }
 
     @classmethod
@@ -326,4 +334,7 @@ class Settings:
             obs_host=data.get("obs_host", "localhost"),
             obs_port=int(data.get("obs_port", 4455)),
             obs_password=data.get("obs_password", ""),
+            update_notify=bool(data.get("update_notify", True)),
+            update_auto=bool(data.get("update_auto", False)),
+            linux_install_prompt=bool(data.get("linux_install_prompt", True)),
         )
