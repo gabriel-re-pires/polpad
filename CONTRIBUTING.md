@@ -100,10 +100,11 @@ atualização sem publicar nada:
    commit) e crie uma pasta com ele, o `SHA256SUMS.txt` dos dois arquivos e
    um `releases.json` com os dois releases (`tag_name`, `assets` com
    `name`, `size` e `browser_download_url` apontando para
-   `http://localhost:8000/...`).
-3. Sirva a pasta: `python -m http.server 8000`.
+   `http://127.0.0.1:8765/...`).
+3. Sirva a pasta: `python -m http.server 8765 --bind 127.0.0.1` (outra
+   porta, se a 8765 estiver em uso).
 4. Abra o Polpad instalado com
-   `POLPAD_RELEASES_URL=http://localhost:8000/releases.json` e confira:
+   `POLPAD_RELEASES_URL=http://127.0.0.1:8765/releases.json` e confira:
    - o aviso da 0.5.1 no canto da tela e o X escondendo-o;
    - **Atualizar** baixando, instalando e reabrindo na 0.5.1;
    - na página de versão, voltar para a 0.5.0 (perfis preservados e um
