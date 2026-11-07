@@ -1,6 +1,6 @@
 # Firmware do macropad (ESP32-C3)
 
-Firmware de referência (v2.0.2) que implementa o contrato de
+Firmware de referência (v2.1.0) que implementa o contrato de
 [docs/PROTOCOLO.md](../docs/PROTOCOLO.md) e o **modo híbrido**:
 
 - **Modo estendido**: com o software aberto no PC (mesmo em segundo
@@ -136,12 +136,13 @@ descomentar.
 
 ## Pareamento Bluetooth (modo autônomo)
 
-1. Ligue o macropad. A tela mostra "Aguardando host..." e "BLE: pareavel".
+1. Ligue o macropad. A tela mostra o polvo com os tentáculos girando e
+   "Aguardando conexão" (ver [Tela de espera](#tela-de-espera)).
 2. No Windows, abra *Configurações → Bluetooth e dispositivos → Adicionar
    dispositivo → Bluetooth*. No Android/macOS, abra a tela de Bluetooth.
 3. Escolha **"Polpad"**. O pareamento é do tipo *just works*, sem
    PIN, e o vínculo fica salvo nos dois lados.
-4. A tela passa a mostrar "BLE: conectado".
+4. Aparece o ícone do Bluetooth no canto de cima, à direita, da tela.
 
 Se o pareamento ficar inconsistente (ex.: depois de regravar com outra
 configuração de BLE), remova o dispositivo no sistema e pareie de novo.
@@ -156,7 +157,7 @@ serial (o software decide o que fazer), mesmo que o BLE esteja pareado.
 
 1. **Serial sem o software**: abra o Monitor Serial (qualquer baud) e
    reinicie a placa. Deve aparecer
-   `{"t":"hello","fw":"2.0.2","keys":18,"screen":{"w":128,"h":64}}`.
+   `{"t":"hello","fw":"2.1.0","keys":18,"screen":{"w":128,"h":64}}`.
    Como o reset derruba a USB, o monitor pode perder essa linha. Nesse
    caso, use o passo 3.
 2. **Teclas**: pressione cada tecla e confira se aparece
@@ -172,11 +173,31 @@ serial (o software decide o que fazer), mesmo que o BLE esteja pareado.
 4. **Software**: feche o monitor e abra o software do PC. O status deve
    mudar para "Conectado" e o display deve mostrar o perfil ativo.
 5. **Modo autônomo**: feche o software (Sair na bandeja). Em cerca de
-   10 s o display volta a "Aguardando host...". Com o macropad pareado via
+   10 s o display volta à tela de espera. Com o macropad pareado via
    Bluetooth, as teclas enviam os atalhos fixos (teste play/pause e
    volume).
 6. **Volta ao host**: reabra o software. O firmware reenvia `hello`, o
    software reenvia o perfil e as teclas deixam de ir pelo BLE.
+
+## Tela de espera
+
+Enquanto o software do PC não aparece, o display mostra o polvo do logo
+parado, com os 8 tentáculos girando em volta do corpo, e embaixo
+"Aguardando conexão" com os três pontinhos animados. Com uma conexão
+Bluetooth ativa, aparece também o ícone do Bluetooth no canto.
+
+![Tela de espera: o polvo girando os tentáculos e "Aguardando conexão"](espera.gif)
+
+Os quadros do polvo ficam em `macropad_firmware/espera_anim.h`, gerado a
+partir do logo por `tools/animacao_espera.py` (não edite o `.h` à mão):
+
+```powershell
+.venv\Scripts\python tools\animacao_espera.py --gif espera.gif
+```
+
+O `--gif` grava também uma prévia da tela inteira, igual pixel a pixel à
+do display. Cada quadro leva ~25 ms para ir ao display pelo I2C; por isso
+a tela só é redesenhada a cada 100 ms, e só enquanto o PC está ausente.
 
 ## Publicar uma versão
 
@@ -201,7 +222,7 @@ arquivos separados — `tools/merge_firmware.py` os funde:
    `firmware*.bin` — é assim que o aplicativo o encontra entre os anexos.
 
 Para testar antes de publicar, use **Arquivo .bin no computador** no
-diálogo de gravação; a exportação crua (`*.ino.bin`) também serve, e vai
+página de gravação; a exportação crua (`*.ino.bin`) também serve, e vai
 para 0x10000 preservando o bootloader já gravado no chip.
 
 ## Observações

@@ -1,5 +1,5 @@
 // =========================================================================
-// Firmware do macropad ESP32-C3 — projeto Polpad  (versão 2.0.2)
+// Firmware do macropad ESP32-C3 — projeto Polpad  (versão 2.1.0)
 //
 // Arquitetura híbrida:
 //   * MODO ESTENDIDO (host presente): eventos de tecla vão pela USB serial
@@ -35,6 +35,7 @@
 #include <Wire.h>
 
 #include "config.h"
+#include "espera_anim.h"
 
 // Depois do config.h, que é quem define (ou não) ENABLE_BLE.
 #ifdef ENABLE_BLE
@@ -42,7 +43,7 @@
 #include <NimBLEHIDDevice.h>
 #endif
 
-constexpr char FW_VERSION[] = "2.0.2";
+constexpr char FW_VERSION[] = "2.1.0";
 
 // ------------------------------------------- verificações de config.h
 // Confere, em tempo de compilação, que KEY_INDEX mapeia exatamente as
@@ -138,8 +139,8 @@ NimBLEHIDDevice *bleHid = nullptr;
 NimBLECharacteristic *bleKeyboardInput = nullptr;
 NimBLECharacteristic *bleConsumerInput = nullptr;
 
-// Alterado pelos callbacks da NimBLE (outra tarefa do FreeRTOS); o loop
-// só observa e redesenha a tela de status quando muda.
+// Alterado pelos callbacks da NimBLE (outra tarefa do FreeRTOS); a tela de
+// espera só observa (mostra o ícone do Bluetooth enquanto conectado).
 volatile bool bleConnected = false;
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -170,10 +171,11 @@ uint32_t lastHostMessageAt = 0;
 bool hostPresent = false;
 bool hostScreenReceived = false;  // host já mandou text/img nesta sessão?
 
-#ifdef ENABLE_BLE
-// Tela de status: último estado de BLE desenhado.
-bool statusShownBleConnected = false;
+// Tela de espera (host ausente): passo da animação desenhado por último.
+// -1 = redesenhar já.
+int32_t waitingStepShown = -1;
 
+#ifdef ENABLE_BLE
 // Relatórios BLE atuais (para soltar só o tipo correspondente).
 uint8_t currentKeyboardReport[8] = {0};
 uint16_t currentConsumerUsage = 0;
@@ -211,7 +213,7 @@ void setup() {
 #ifdef ENABLE_BLE
   setupBle();
 #endif
-  showStatusScreen();
+  showWaitingScreen();
   sendHello();
 }
 
@@ -221,9 +223,7 @@ void loop() {
   scanKeys();
   readSerial();
   updateHostPresence();
-#ifdef ENABLE_BLE
-  updateStatusScreen();
-#endif
+  updateWaitingScreen();
 }
 
 // ======================================================== matriz de teclas
@@ -459,40 +459,60 @@ void onHostArrived() {
 void updateHostPresence() {
   if (hostPresent && (millis() - lastHostMessageAt) >= HOST_TIMEOUT_MS) {
     hostPresent = false;
-    showStatusScreen();  // host saiu: informa o modo autônomo
+    showWaitingScreen();  // host saiu: volta à tela de espera
   }
 }
 
 // ================================================================== display
 
 #ifdef ENABLE_BLE
-void updateStatusScreen() {
-  // Redesenha a tela de status se o estado do BLE mudou enquanto ela está
-  // visível (host ausente).
-  bool connected = bleConnected;
-  if (!hostPresent && connected != statusShownBleConnected) {
-    showStatusScreen();
-  }
-}
+// Runa do Bluetooth (5x9), desenhada no canto enquanto há conexão BLE.
+static const uint8_t BLE_ICON[] PROGMEM = {
+    0x20, 0x30, 0xA8, 0x70, 0x20, 0x70, 0xA8, 0x30, 0x20,
+};
 #endif
 
-void showStatusScreen() {
-#ifdef ENABLE_BLE
-  statusShownBleConnected = bleConnected;
-#endif
-  if (!displayOk) return;
+// Tela de espera: o polvo do logo com os tentáculos girando (quadros em
+// espera_anim.h, gerados por tools/animacao_espera.py) e, embaixo,
+// "Aguardando conexão" com os pontinhos animados.
+void showWaitingScreen() {
+  waitingStepShown = -1;
+  updateWaitingScreen();
+}
+
+// Chamada a cada volta do loop: só redesenha quando o passo da animação
+// muda (a cada ESPERA_QUADRO_MS). Cada envio ao display leva ~25 ms no I2C,
+// por isso não se redesenha a cada volta.
+void updateWaitingScreen() {
+  if (hostPresent || !displayOk) return;
+  int32_t step = (int32_t)(millis() / ESPERA_QUADRO_MS);
+  if (step == waitingStepShown) return;
+  waitingStepShown = step;
+
   display.clearDisplay();
-  display.setTextSize(2);
-  display.setCursor(16, 8);
-  display.print("macropad");
+  display.drawBitmap((OLED_W - ESPERA_LADO) / 2, 0,
+                     ESPERA_POLVO[step % ESPERA_QUADROS], ESPERA_LADO,
+                     ESPERA_LADO, SSD1306_WHITE);
+
+  // O texto fica centralizado contando os três pontos, para não "andar"
+  // enquanto eles aparecem.
+  constexpr int16_t CELL_W = 6;
+  constexpr int16_t textChars = sizeof(ESPERA_TEXTO) - 1;
+  int16_t x = (OLED_W - (textChars + 3) * CELL_W) / 2;
   display.setTextSize(1);
-  display.setCursor(10, 34);
-  display.print("Aguardando host...");
-  display.setCursor(10, 48);
+  display.setCursor(x, ESPERA_TEXTO_Y);
+  display.print(ESPERA_TEXTO);
+  uint8_t dots = (millis() / ESPERA_PONTOS_MS) % 4;
+  for (uint8_t i = 0; i < dots; i++) display.print('.');
+  int16_t tilX = x + ESPERA_TIL_EM * CELL_W;
+  for (const auto &p : ESPERA_TIL) {
+    display.drawPixel(tilX + p[0], ESPERA_TEXTO_Y + p[1], SSD1306_WHITE);
+  }
+
 #ifdef ENABLE_BLE
-  display.print(statusShownBleConnected ? "BLE: conectado" : "BLE: pareavel");
-#else
-  display.print("Modo USB apenas");
+  if (bleConnected) {
+    display.drawBitmap(OLED_W - 6, 0, BLE_ICON, 5, 9, SSD1306_WHITE);
+  }
 #endif
   display.display();
 }
