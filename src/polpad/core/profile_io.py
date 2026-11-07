@@ -125,7 +125,7 @@ def from_json(texto: str | bytes) -> ImportedProfile:
             texto = texto.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
             raise ProfileFileError("o arquivo não é um texto UTF-8") from exc
-    texto = texto.removeprefix("﻿")
+    texto = texto.removeprefix(chr(0xFEFF))
     try:
         documento = json.loads(texto)
     except json.JSONDecodeError as exc:
