@@ -54,6 +54,48 @@ class ReleasesPublicadosTest(unittest.TestCase):
             github.published_releases(cliente)
 
 
+def _limitado(status: int) -> ClienteFalso:
+    """Cliente que responde como o GitHub quando estoura o limite de consultas."""
+    resposta = requests.Response()
+    resposta.status_code = status
+    resposta.reason = "rate limit exceeded"
+    erro = requests.HTTPError(
+        f"{status} Client Error: rate limit exceeded", response=resposta
+    )
+    return ClienteFalso(RespostaFalsa(erro=erro))
+
+
+class LimiteDeConsultasTest(unittest.TestCase):
+    def test_403_fala_do_limite_e_nao_da_internet(self):
+        with self.assertRaises(github.GitHubError) as ctx:
+            github.published_releases(_limitado(403))
+        mensagem = str(ctx.exception)
+        self.assertIn("limitou as consultas", mensagem)
+        self.assertNotIn("internet", mensagem)
+
+    def test_429_tambem_e_limite(self):
+        with self.assertRaises(github.GitHubError) as ctx:
+            github.get_text("https://exemplo/notas", _limitado(429))
+        self.assertIn("limitou as consultas", str(ctx.exception))
+        self.assertNotIn("internet", str(ctx.exception))
+
+    def test_firmware_tambem_mostra_o_limite(self):
+        from polpad.device import firmware_release
+
+        with self.assertRaises(firmware_release.ReleaseError) as ctx:
+            firmware_release.latest_release(_limitado(403))
+        self.assertIn("limitou as consultas", str(ctx.exception))
+        self.assertNotIn("internet", str(ctx.exception))
+
+    def test_outro_erro_http_continua_como_falha_de_rede(self):
+        resposta = requests.Response()
+        resposta.status_code = 502
+        erro = requests.HTTPError("502 Server Error", response=resposta)
+        with self.assertRaises(github.GitHubError) as ctx:
+            github.published_releases(ClienteFalso(RespostaFalsa(erro=erro)))
+        self.assertIn("internet", str(ctx.exception))
+
+
 class DownloadTest(unittest.TestCase):
     def test_download_interrompido_nao_deixa_arquivo(self):
         with tempfile.TemporaryDirectory() as pasta:
