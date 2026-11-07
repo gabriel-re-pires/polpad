@@ -35,7 +35,8 @@ WIDTH = 360
 VISIBLE_MS = 5000
 LINK = f'<a href="novidades" style="color: {style.ACCENT_HOVER};">Ver novidades</a>'
 
-Notify = Callable[[str, str], object]
+#: ``notify(título, detalhe)`` ou ``notify(título, detalhe, tag=...)``.
+Notify = Callable[..., object]
 
 
 def toast_position(available: QRect, size: QSize, margin: int = MARGIN) -> QPoint:
@@ -49,6 +50,7 @@ def toast_position(available: QRect, size: QSize, margin: int = MARGIN) -> QPoin
 class UpdateToast(QWidget):
     update_clicked = Signal()
     install_now_clicked = Signal()
+    flash_clicked = Signal()
     details_clicked = Signal()
     retry_clicked = Signal()
     dismissed = Signal()
@@ -121,7 +123,7 @@ class UpdateToast(QWidget):
 
     @property
     def current_action(self) -> str:
-        """O que o botão faz agora: "update", "install_now", "retry" ou ""."""
+        """O que o botão faz agora: "update", "install_now", "retry", "flash" ou ""."""
         return self._action
 
     # ------------------------------------------------------------ estados
@@ -132,6 +134,17 @@ class UpdateToast(QWidget):
             f"Você está na {current}",
             "Atualizar",
             "update",
+        )
+
+    def show_firmware_available(self, version: str, current: str) -> None:
+        """Firmware novo para o macropad; "Gravar" abre a página de gravação."""
+        self._show(
+            f"Firmware {version} disponível para o macropad",
+            f"O seu está com o {current}",
+            "Gravar",
+            "flash",
+            details=False,
+            tag="firmware",
         )
 
     def show_pending(self, version: str) -> None:
@@ -176,7 +189,13 @@ class UpdateToast(QWidget):
     # ------------------------------------------------------------ interno
 
     def _show(
-        self, title: str, detail: str, action: str, kind: str, details: bool = True
+        self,
+        title: str,
+        detail: str,
+        action: str,
+        kind: str,
+        details: bool = True,
+        tag: str | None = None,
     ) -> None:
         self.title.setText(title)
         self.detail.setText(detail)
@@ -191,7 +210,10 @@ class UpdateToast(QWidget):
         self._auto_hide = True
         self.hide_timer.start()
         if self._notify is not None:
-            self._notify(title, detail)
+            if tag is None:
+                self._notify(title, detail)
+            else:
+                self._notify(title, detail, tag=tag)
 
     def _stay(self) -> None:
         """Progresso e erros esperam o usuário: não somem sozinhos."""
@@ -219,6 +241,7 @@ class UpdateToast(QWidget):
             "update": self.update_clicked,
             "install_now": self.install_now_clicked,
             "retry": self.retry_clicked,
+            "flash": self.flash_clicked,
         }.get(self._action)
         if signal is not None:
             signal.emit()

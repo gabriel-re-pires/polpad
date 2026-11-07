@@ -50,8 +50,12 @@ def _register() -> None:
         )
 
 
-def post(title: str, body: str) -> bool:
-    """Põe o aviso na central, sem banner. ``True`` se o Windows aceitou."""
+def post(title: str, body: str, tag: str = TAG) -> bool:
+    """Põe o aviso na central, sem banner. ``True`` se o Windows aceitou.
+
+    Avisos com a mesma ``tag`` se substituem; o do firmware usa outra, para
+    não apagar o de versão nova do programa.
+    """
     if sys.platform != "win32":
         return False
     try:
@@ -66,7 +70,7 @@ def post(title: str, body: str) -> bool:
         doc.load_xml(toast_xml(title, body))
         toast = ToastNotification(doc)
         toast.suppress_popup = True
-        toast.tag = TAG
+        toast.tag = tag
         toast.group = GROUP
         ToastNotificationManager.create_toast_notifier_with_id(AUMID).show(toast)
     except Exception:  # um aviso a menos nunca pode derrubar o Polpad

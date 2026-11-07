@@ -424,6 +424,15 @@ class MainWindow(QMainWindow):
     def set_update_controller(self, controller: UpdateController) -> None:
         self._updates = controller
         controller.show_page = self._show_version_page
+        controller.flash_requested.connect(self._open_flash_from_notice)
+        # A placa pode ter respondido antes de o controlador existir.
+        if self._device_version:
+            controller.device_firmware(self._device_version)
+
+    def _open_flash_from_notice(self) -> None:
+        """"Gravar" no aviso de firmware novo (a janela pode estar na bandeja)."""
+        self.present()
+        self._open_flash_page()
 
     def _open_updates(self) -> None:
         if self._updates is not None:
@@ -596,6 +605,9 @@ class MainWindow(QMainWindow):
                 self._device_version = version
                 if self._connected_port:
                     self._set_connected(True, self._connected_port)
+                if self._updates is not None:
+                    # Firmware mais novo no GitHub? O controlador avisa.
+                    self._updates.device_firmware(version)
             return
         if message.get("t") != "key" or message.get("e") != "down":
             return
