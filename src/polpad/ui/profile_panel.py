@@ -402,12 +402,19 @@ class ProfilePanel(QFrame):
         if not caminho:
             return
         try:
-            texto = Path(caminho).read_text(encoding="utf-8")
+            # utf-8-sig: aceita também o arquivo salvo com BOM.
+            texto = Path(caminho).read_text(encoding="utf-8-sig")
             importado = profile_io.from_json(texto)
         except OSError as exc:
             QMessageBox.critical(self, "Importar perfil", f"Falha ao ler: {exc}")
             return
-        except profile_io.ProfileFileError as exc:
+        except UnicodeDecodeError:
+            # Imagem ou outro binário com extensão .json.
+            QMessageBox.critical(
+                self, "Importar perfil", "Arquivo inválido: não é um arquivo de texto."
+            )
+            return
+        except (profile_io.ProfileFileError, ValueError) as exc:
             QMessageBox.critical(self, "Importar perfil", f"Arquivo inválido: {exc}")
             return
 

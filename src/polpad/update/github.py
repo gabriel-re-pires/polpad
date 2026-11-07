@@ -43,7 +43,22 @@ def _client(session: Any | None) -> Any:
     return session if session is not None else requests
 
 
+#: Códigos com que a API do GitHub recusa quem passou do limite de consultas
+#: (60 por hora sem login, contadas por IP).
+_RATE_LIMIT_STATUS = (403, 429)
+
+
 def _network_error(exc: Exception) -> GitHubError:
+    response = getattr(exc, "response", None)
+    if (
+        isinstance(exc, requests.HTTPError)
+        and response is not None
+        and response.status_code in _RATE_LIMIT_STATUS
+    ):
+        return GitHubError(
+            "O GitHub limitou as consultas; tente de novo em alguns minutos."
+            f"\n\nDetalhe: {exc}"
+        )
     return GitHubError(
         "Não foi possível consultar o GitHub. Verifique a conexão com a "
         f"internet.\n\nDetalhe: {exc}"

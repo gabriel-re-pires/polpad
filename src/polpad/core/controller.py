@@ -59,6 +59,9 @@ class Controller:
         # retorno agendado de uma troca anterior (trocas em sequência).
         self._splash_token = 0
         self._splashing = False
+        # Captura de tecla ("Capturar do macropad"): a próxima tecla apertada
+        # vai para este callback em vez de executar a ação ou trocar o perfil.
+        self.key_capture: Callable[[int], None] | None = None
 
     # ------------------------------------------------------------ eventos
 
@@ -70,7 +73,13 @@ class Controller:
             # na tela não é o nosso quadro, então o reenvio é forçado.
             self.push_display(force=True)
         elif kind == "key" and message.get("e") == "down":
-            self._handle_key(int(message.get("k", -1)))
+            key = int(message.get("k", -1))
+            capture = self.key_capture
+            if capture is not None:
+                self.key_capture = None
+                capture(key)
+                return
+            self._handle_key(key)
         elif kind == "_mode_switch":
             # Mensagem interna gerada pela ação "mode_switch" (ver app.py).
             self.switch_mode()

@@ -132,6 +132,20 @@ class TrocaLinuxTest(unittest.TestCase):
         self.assertEqual(self.alvo.read_bytes(), b"\x7fELF velho")
         self.assertFalse((self.alvo.parent / ".polpad.novo").exists())
 
+    def test_pacote_cortado_vira_install_error(self):
+        # Conteúdo aleatório não comprime: o corte cai no meio do executável.
+        executavel = b"\x7fELF" + os.urandom(2 * 1024 * 1024)
+        inteiro = _pacote(self.pasta, executavel, "Polpad-Linux/Polpad").read_bytes()
+        for fracao in (0.5, 0.9, 0.999):
+            with self.subTest(fracao=fracao):
+                cortado = self.pasta / f"cortado-{fracao}.tar.gz"
+                cortado.write_bytes(inteiro[: int(len(inteiro) * fracao)])
+                with self.assertRaises(installer.InstallError) as ctx:
+                    installer.swap_linux(cortado, self.alvo)
+                self.assertIn("danificado", str(ctx.exception))
+                self.assertEqual(self.alvo.read_bytes(), b"\x7fELF velho")
+                self.assertFalse((self.alvo.parent / ".polpad.novo").exists())
+
 
 class TipoDeInstalacaoTest(unittest.TestCase):
     def test_desenvolvimento(self):

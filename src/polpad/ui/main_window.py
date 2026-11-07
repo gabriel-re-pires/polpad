@@ -346,7 +346,9 @@ class MainWindow(QMainWindow):
         geometry = settings.value("janela/geometria")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        else:
+        # A geometria salva também passa pelo ajuste: com o mínimo fixo do
+        # __init__, ela voltaria maior que a área útil numa tela pequena.
+        if geometry is None or not self.isMaximized():
             self._fit_to_screen()
         # Chave nova: o estado salvo pela versão de duas colunas não serve.
         splitter_state = settings.value("janela/colunas")
@@ -359,19 +361,25 @@ class MainWindow(QMainWindow):
             side.set_collapsed(str(settings.value(key, "false")).lower() == "true")
 
     def _fit_to_screen(self) -> None:
-        """Na primeira abertura, cabe na área útil da tela.
+        """Cabe na área útil da tela.
 
         O tamanho padrão (1280×760) passa da área útil de um notebook
         1366×768 — painéis e barra de tarefas tomam parte da altura — e o
-        rodapé ficava escondido atrás deles.
+        rodapé ficava escondido atrás deles. Com escala de 125% a área
+        útil cai para 1093×576, menor até que o mínimo da janela; nesse
+        caso o mínimo desce para caber.
         """
         screen = self.screen()
         if screen is None:
             return
         area = screen.availableGeometry()
         title_bar = 40  # a moldura da janela não entra no resize()
-        width = max(min(self.width(), area.width()), self.minimumWidth())
-        height = max(min(self.height(), area.height() - title_bar), self.minimumHeight())
+        min_width = min(self.minimumWidth(), area.width())
+        min_height = min(self.minimumHeight(), area.height() - title_bar)
+        if (min_width, min_height) != (self.minimumWidth(), self.minimumHeight()):
+            self.setMinimumSize(min_width, min_height)
+        width = max(min(self.width(), area.width()), min_width)
+        height = max(min(self.height(), area.height() - title_bar), min_height)
         self.resize(width, height)
 
     def _save_layout(self) -> None:
@@ -612,10 +620,6 @@ class MainWindow(QMainWindow):
         if message.get("t") != "key" or message.get("e") != "down":
             return
         key = int(message.get("k", -1))
-        page = self._settings_page
-        if page is not None and page.capturing_mode_key:
-            page.key_captured(key)
-            return
         # Acende a tecla no aparelho da tela: confirma visualmente que o
         # dispositivo chegou até o software, mesmo quando a ação não tem
         # efeito visível.
@@ -878,6 +882,7 @@ class MainWindow(QMainWindow):
         if not self._can_leave(page):
             return False
         self._overlay = None
+        self._cancel_capture()
         self._settings_page = None
         self._pages.setCurrentIndex(0)
         self._pages.removeWidget(page)
@@ -900,6 +905,7 @@ class MainWindow(QMainWindow):
         page.closed.connect(self._close_overlay)
         page.reset_settings_requested.connect(self._reset_settings)
         page.reset_profiles_requested.connect(self._reset_profiles)
+        page.capture_started.connect(self._start_capture)
         if self._updates is not None:
             page.uninstall_requested.connect(self._updates.uninstall)
         if not self._show_overlay(page):
@@ -909,6 +915,27 @@ class MainWindow(QMainWindow):
 
     def _close_settings(self) -> None:
         self._close_overlay()
+
+    # ------------------------------------------------- captura da tecla de modo
+
+    def _start_capture(self) -> None:
+        """A próxima tecla do macropad vai para as configurações.
+
+        Quem desvia é o controlador: se a janela só repassasse a tecla à
+        página, ele executaria a ação dela do mesmo jeito.
+        """
+        self._core.controller.key_capture = self._on_key_captured
+
+    def _on_key_captured(self, key: int) -> None:
+        page = self._settings_page
+        if page is not None:
+            page.key_captured(key)
+
+    def _cancel_capture(self) -> None:
+        self._core.controller.key_capture = None
+        page = self._settings_page
+        if page is not None:
+            page.cancel_capture()
 
     def _on_settings_saved(self) -> None:
         self._core.store.save()
@@ -957,6 +984,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ refresh
 
     def _refresh_all(self) -> None:
+        controller = self._core.controller
+        # Renomear ou excluir o perfil ativo muda o que o aparelho deve
+        # mostrar. Quadros iguais ao último não são reenviados, e o ícone de
+        # uma troca de perfil em andamento não é cortado (o fim dele já
+        # envia o quadro atualizado).
+        if not controller.splashing:
+            controller.push_display()
         self._profile_panel.refresh()
         self._refresh_stage()
         self._refresh_preview()
@@ -1049,6 +1083,9 @@ class MainWindow(QMainWindow):
             # Fechar a janela apenas esconde: o macropad continua funcionando.
             # Sem aviso na bandeja: repetido a cada sessão, só incomodava.
             event.ignore()
+            # Com a janela escondida, uma captura pendente engoliria a
+            # próxima tecla sem ninguém ver.
+            self._cancel_capture()
             self.hide()
             return
         super().closeEvent(event)

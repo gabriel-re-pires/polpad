@@ -61,8 +61,12 @@ def store(name: str, value: str) -> bool:
     return True
 
 
-def load(name: str) -> str:
-    """Lê um segredo; devolve string vazia se não houver ou se falhar."""
+def load(name: str) -> str | None:
+    """Lê um segredo: ``""`` se não houver, ``None`` se a leitura falhar.
+
+    A diferença importa: um segredo que não pôde ser lido não pode ser
+    tratado como apagado, ou o próximo ``save()`` o apagaria do cofre.
+    """
     keyring = _keyring()
     if keyring is None:
         return ""
@@ -70,7 +74,7 @@ def load(name: str) -> str:
         return keyring.get_password(SERVICE, name) or ""
     except Exception as exc:
         log.warning("não foi possível ler %r do cofre: %s", name, exc)
-        return ""
+        return None
 
 
 def _delete(keyring, name: str) -> None:

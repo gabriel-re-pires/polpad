@@ -37,6 +37,9 @@ def setup(level: int = logging.INFO) -> Path | None:
     """
     root = logging.getLogger()
     root.setLevel(level)
+    # O obsws_python registra em INFO os parâmetros de conexão com a senha
+    # do OBS em texto claro; dele só interessam avisos e erros.
+    logging.getLogger("obsws_python").setLevel(logging.WARNING)
     formatter = logging.Formatter(_FORMAT)
 
     # Console: só quando há um terminal de verdade (python.exe).

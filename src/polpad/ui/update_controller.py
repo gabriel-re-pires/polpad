@@ -84,6 +84,7 @@ def apply_switch(
     backup.create(data_dir, current, target, now=now())
     path = state_path(data_dir)
     st = UpdateState.load(path)
+    previous = (st.switch, st.pending)
     st.switch = Switch(current, target, now().isoformat())
     st.pending = None
     st.save(path)
@@ -91,7 +92,15 @@ def apply_switch(
         log_path = updates_dir(data_dir) / INSTALL_LOG
         launcher(installer.windows_command(package, log_path, relaunch))
         return
-    installer.swap_linux(package, Path(executable))
+    try:
+        installer.swap_linux(package, Path(executable))
+    except (installer.InstallError, OSError):
+        # Nada foi trocado: desfaz a marca, senão a próxima abertura avisaria
+        # de uma troca que nem começou. A pendente volta para quem chamou
+        # poder descartá-la (com o arquivo danificado).
+        st.switch, st.pending = previous
+        st.save(path)
+        raise
     if relaunch:
         if release_instance is not None:
             release_instance()
