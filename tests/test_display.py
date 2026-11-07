@@ -128,9 +128,29 @@ class TelasDoPerfilTest(unittest.TestCase):
         self.assertEqual(
             curto.tobytes(), oled_render.render_text_lines(["VS Code"]).tobytes()
         )
+        # 21 letras: não cabe em tamanho 2, então sai numa linha em tamanho 1.
+        esperado = oled_render.new_frame()
+        oled_render.draw_text_centered(esperado, 28, "Edicao de video longa", 1)
+        self.assertEqual(longo.tobytes(), esperado.tobytes())
+
+    def test_nome_longo_nao_sai_cortado(self):
+        for nome in (
+            "Photoshop 2",
+            "Edição de vídeo",
+            "Edição de vídeo longa",
+            "Supercalifragilisticexpialidocious",
+        ):
+            with self.subTest(nome=nome):
+                bbox = display.title_frame(nome).getbbox()
+                self.assertIsNotNone(bbox)
+                self.assertGreater(bbox[0], 0)
+                self.assertLess(bbox[2], SCREEN_W)
+
+    def test_palavra_maior_que_a_linha_quebra_em_pedacos(self):
+        palavra = "Supercalifragilisticexpialidocious"
         self.assertEqual(
-            longo.tobytes(),
-            oled_render.render_text_lines(["Edicao de video longa"]).tobytes(),
+            display.title_frame(palavra).tobytes(),
+            oled_render.render_text_lines([palavra[:21], palavra[21:]]).tobytes(),
         )
 
     def test_personalizado_tem_faixa_com_o_perfil(self):

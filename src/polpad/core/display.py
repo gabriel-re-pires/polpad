@@ -125,6 +125,7 @@ def title_frame(name: str) -> Image.Image:
     corta nomes com mais de 10 caracteres. Como aqui o host compõe o quadro,
     nomes longos descem para o tamanho 1 e quebram em até três linhas.
     """
+    cols = oled_render.TEXT_COLS
     text = _ascii(name).strip() or "?"
     if oled_render.text_width(text, 2) <= SCREEN_W:
         return oled_render.render_text_lines([text])
@@ -132,15 +133,27 @@ def title_frame(name: str) -> Image.Image:
     current = ""
     for word in text.split():
         candidate = f"{current} {word}".strip()
-        if len(candidate) <= oled_render.TEXT_COLS:
+        if len(candidate) <= cols:
             current = candidate
-        else:
-            if current:
-                lines.append(current)
-            current = word[: oled_render.TEXT_COLS]
+            continue
+        if current:
+            lines.append(current)
+        # Palavra maior que a linha quebra em pedaços, em vez de ser cortada.
+        while len(word) > cols:
+            lines.append(word[:cols])
+            word = word[cols:]
+        current = word
     if current:
         lines.append(current)
-    return oled_render.render_text_lines(lines[:3] or [text[: oled_render.TEXT_COLS]])
+    lines = lines[:3]
+    if len(lines) > 1:
+        return oled_render.render_text_lines(lines)
+    # Uma linha só: render_text_lines a desenharia em tamanho 2 (o que corta
+    # acima de 10 letras), então ela vai em tamanho 1, na mesma altura.
+    frame = oled_render.new_frame()
+    line_height = CELL_H + 4
+    oled_render.draw_text_centered(frame, (SCREEN_H - line_height + 4) // 2, lines[0], 1)
+    return frame
 
 
 def frame_payload(frame: Image.Image) -> str:
