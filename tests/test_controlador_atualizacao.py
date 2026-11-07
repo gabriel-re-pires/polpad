@@ -17,6 +17,8 @@ import shiboken6
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from polpad.core.store import Store
+from polpad.device import firmware_release
+from polpad.device.firmware_release import FirmwareRelease
 from polpad.ui import update_controller, version_dialog
 from polpad.update import backup, github, state
 
@@ -114,6 +116,7 @@ class Base(unittest.TestCase):
         tipo="windows",
         plataforma="win32",
         central=None,
+        firmware=None,
     ):
         store = Store(self.dados, vault=CofreFalso())
         store.settings.update_auto = auto
@@ -132,6 +135,7 @@ class Base(unittest.TestCase):
             runner=runner or _sincrono,
             kind=lambda: tipo,
             center=central,
+            **({"firmware_check": firmware} if firmware is not None else {}),
         )
         self.addCleanup(controlador.shutdown)
         return controlador
@@ -545,3 +549,107 @@ class PaginaDeVersaoTest(Base):
         self.assertEqual(
             self.mostradas[1].version_label.text(), f"Polpad {controlador.current}"
         )
+
+
+def _firmware(versao: str = "2.1.0") -> FirmwareRelease:
+    return FirmwareRelease(
+        tag="v0.7.2",
+        version=versao,
+        asset_name=f"firmware-{versao}.bin",
+        url=f"https://x/firmware-{versao}.bin",
+        size=1,
+    )
+
+
+class AvisoDeFirmwareTest(Base):
+    """Placa com firmware antigo: o Polpad avisa que há um mais novo."""
+
+    def _com_firmware(self, versao="2.1.0", central=None):
+        self.consultas = 0
+
+        def consultar():
+            self.consultas += 1
+            return _firmware(versao)
+
+        return self._controlador(firmware=consultar, central=central)
+
+    def test_firmware_novo_avisa(self):
+        central = mock.Mock()
+        controlador = self._com_firmware(central=central)
+        controlador.device_firmware("2.0.2")
+        self.assertTrue(controlador.toast.isVisible())
+        self.assertEqual(
+            controlador.toast.title.text(), "Firmware 2.1.0 disponível para o macropad"
+        )
+        self.assertEqual(controlador.toast.current_action, "flash")
+        central.post.assert_called_once_with(
+            "Firmware 2.1.0 disponível para o macropad",
+            "O seu está com o 2.0.2",
+            tag="firmware",
+        )
+
+    def test_firmware_em_dia_nao_avisa(self):
+        controlador = self._com_firmware("2.0.2")
+        controlador.device_firmware("2.0.2")
+        self.assertFalse(controlador.toast.isVisible())
+
+    def test_firmware_mais_novo_que_o_release_nao_avisa(self):
+        controlador = self._com_firmware("2.0.2")
+        controlador.device_firmware("2.1.0")
+        self.assertFalse(controlador.toast.isVisible())
+
+    def test_aviso_desligado_nem_consulta(self):
+        controlador = self._com_firmware()
+        controlador.store.settings.update_notify = False
+        controlador.device_firmware("2.0.2")
+        self.assertEqual(self.consultas, 0)
+        self.assertFalse(controlador.toast.isVisible())
+
+    def test_consulta_uma_vez_por_sessao(self):
+        controlador = self._com_firmware()
+        controlador.device_firmware("2.0.2")
+        controlador.toast.hide()
+        controlador.device_firmware("2.0.2")  # a placa reconectou
+        self.assertEqual(self.consultas, 1)
+
+    def test_gravar_abre_a_pagina_de_firmware(self):
+        controlador = self._com_firmware()
+        pedidos = []
+        controlador.flash_requested.connect(lambda: pedidos.append(True))
+        controlador.device_firmware("2.0.2")
+        controlador.toast.action_button.click()
+        self.assertEqual(pedidos, [True])
+        self.assertFalse(controlador.toast.isVisible())
+
+    def test_fechar_nao_avisa_de_novo_nesta_sessao(self):
+        controlador = self._com_firmware()
+        controlador.device_firmware("2.0.2")
+        controlador.toast.close_button.click()
+        controlador.device_firmware("2.0.2")
+        self.assertFalse(controlador.toast.isVisible())
+        # O X do firmware não cala o aviso de versão nova do programa.
+        controlador.check_now(user=False)
+        self.assertEqual(controlador.toast.title.text(), "Nova versão do Polpad: 0.5.1")
+
+    def test_nao_atropela_o_aviso_do_programa(self):
+        controlador = self._com_firmware()
+        controlador.check_now(user=False)
+        adiados = []
+        with mock.patch.object(
+            update_controller.QTimer, "singleShot", lambda _ms, fn: adiados.append(fn)
+        ):
+            controlador.device_firmware("2.0.2")
+        self.assertEqual(controlador.toast.title.text(), "Nova versão do Polpad: 0.5.1")
+        controlador.toast.hide()
+        adiados[0]()
+        self.assertEqual(
+            controlador.toast.title.text(), "Firmware 2.1.0 disponível para o macropad"
+        )
+
+    def test_falha_na_consulta_nao_avisa(self):
+        def falhar():
+            raise firmware_release.ReleaseError("sem internet")
+
+        controlador = self._controlador(firmware=falhar)
+        controlador.device_firmware("2.0.2")
+        self.assertFalse(controlador.toast.isVisible())

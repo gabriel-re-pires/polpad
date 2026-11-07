@@ -35,9 +35,11 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, __version__
 from ..core.store import Store
+from ..device import firmware_release
+from ..device.firmware_release import FirmwareRelease
 from ..update import backup, installer, linux_install, policy, releases
 from ..update.state import Pending, Switch, UpdateState, state_path, updates_dir
-from .update_toast import UpdateToast
+from .update_toast import VISIBLE_MS, UpdateToast
 from .version_dialog import VersionPage, VersionView
 
 log = logging.getLogger(__name__)
@@ -220,7 +222,12 @@ class _Job(QThread):
         try:
             self.done.emit(self._fn())
         except Exception as exc:
-            if not isinstance(exc, installer.InstallError | releases.github.GitHubError):
+            esperados = (
+                installer.InstallError,
+                releases.github.GitHubError,
+                firmware_release.ReleaseError,
+            )
+            if not isinstance(exc, esperados):
                 log.exception("falha inesperada no atualizador")
             self.failed.emit(str(exc))
 
@@ -235,6 +242,9 @@ class _Progress(QObject):
 
 
 class UpdateController(QObject):
+    #: "Gravar" no aviso de firmware novo: a janela abre a página de gravação.
+    flash_requested = Signal()
+
     def __init__(
         self,
         store: Store,
@@ -251,6 +261,7 @@ class UpdateController(QObject):
         release_instance: Callable[[], None] | None = None,
         kind: Callable[[], str] = installer.install_kind,
         center: Any | None = None,
+        firmware_check: Callable[[], FirmwareRelease] | None = None,
     ) -> None:
         super().__init__(parent)
         self.store = store
@@ -287,6 +298,17 @@ class UpdateController(QObject):
         self._progress = _Progress()
         self._progress.changed.connect(self._on_progress)
 
+        # Firmware da placa: consultado uma vez por sessão, quando ela conecta.
+        self._firmware_check = firmware_check or (
+            lambda: firmware_release.latest_release(self._session)
+        )
+        self._device_firmware: str | None = None
+        self._firmware: FirmwareRelease | None = None
+        self._firmware_checking = False
+        self._firmware_checked = False
+        self._firmware_offered: str | None = None
+        self._firmware_dismissed = False
+
         # Central de notificações do sistema (``notification_center``); sem
         # ela, os avisos só aparecem no canto da tela.
         self._center = center
@@ -295,6 +317,7 @@ class UpdateController(QObject):
         self.toast.install_now_clicked.connect(self._install_pending_now)
         self.toast.details_clicked.connect(self.open_page)
         self.toast.retry_clicked.connect(self._on_retry)
+        self.toast.flash_clicked.connect(self._on_toast_flash)
         self.toast.dismissed.connect(self._on_dismissed)
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
@@ -410,6 +433,60 @@ class UpdateController(QObject):
         self._runner(
             lambda: releases.list_releases(self._session, self._platform), done, failed
         )
+
+    # ------------------------------------------------------------ firmware
+
+    def device_firmware(self, version: str) -> None:
+        """A placa conectou com o firmware ``version``.
+
+        Na primeira vez da sessão, consulta o firmware do release mais
+        recente; se ele for mais novo que o da placa, avisa (uma vez por
+        sessão e por versão da placa, como o aviso de versão do programa).
+        """
+        self._device_firmware = version
+        if not self.store.settings.update_notify:
+            return
+        if self._firmware_checked:
+            self._offer_firmware()
+            return
+        if self._firmware_checking:
+            return
+        self._firmware_checking = True
+
+        def done(release: FirmwareRelease) -> None:
+            self._firmware_checking = False
+            self._firmware_checked = True
+            self._firmware = release
+            self._offer_firmware()
+
+        def failed(message: str) -> None:
+            self._firmware_checking = False
+            self._firmware_checked = True
+            log.info("consulta do firmware falhou: %s", message)
+
+        self._runner(self._firmware_check, done, failed)
+
+    def _offer_firmware(self) -> None:
+        release, current = self._firmware, self._device_firmware
+        if release is None or not current:
+            return
+        if not firmware_release.is_newer(release.version, current):
+            return
+        if self._firmware_dismissed or self._firmware_offered == current:
+            return
+        if not self.store.settings.update_notify:
+            return
+        if self.toast.isVisible() and self.toast.current_action != "flash":
+            # Não atropela o aviso do programa (versão nova, progresso, erro):
+            # tenta de novo quando ele já tiver sumido.
+            QTimer.singleShot(VISIBLE_MS + 500, self._offer_firmware)
+            return
+        self._firmware_offered = current
+        self.toast.show_firmware_available(release.version, current)
+
+    def _on_toast_flash(self) -> None:
+        self.toast.hide()
+        self.flash_requested.emit()
 
     # ------------------------------------------------------------ instalação
 
@@ -784,7 +861,11 @@ class UpdateController(QObject):
             self.check_now(user=True)
 
     def _on_dismissed(self) -> None:
-        self._dismissed = True
+        # O X de um aviso só cala aquele assunto nesta sessão.
+        if self.toast.current_action == "flash":
+            self._firmware_dismissed = True
+        else:
+            self._dismissed = True
 
     def _on_progress(self, percent: int) -> None:
         self.toast.show_progress(f"Baixando… {percent}%")
