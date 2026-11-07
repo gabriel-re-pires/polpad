@@ -52,7 +52,7 @@ def _view(**mudancas) -> version_dialog.VersionView:
 
 class PaginaTest(unittest.TestCase):
     def setUp(self):
-        self.pagina = version_dialog.VersionDialog()
+        self.pagina = version_dialog.VersionPage()
         self.addCleanup(self.pagina.close)
         self.eventos: list[tuple] = []
         for nome in ("update_requested", "install_requested", "restore_requested"):
@@ -143,11 +143,11 @@ class PaginaTest(unittest.TestCase):
 
     def test_botoes_linux_so_no_linux(self):
         with mock.patch.object(sys, "platform", "win32"):
-            pagina = version_dialog.VersionDialog()
+            pagina = version_dialog.VersionPage()
         self.addCleanup(pagina.close)
         self.assertIsNone(pagina.linux_install_button)
         with mock.patch.object(sys, "platform", "linux"):
-            pagina_linux = version_dialog.VersionDialog()
+            pagina_linux = version_dialog.VersionPage()
         self.addCleanup(pagina_linux.close)
         self.assertIsNotNone(pagina_linux.linux_install_button)
 

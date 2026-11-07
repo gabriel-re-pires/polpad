@@ -1,4 +1,4 @@
-"""Página "Versão e atualizações".
+"""Página "Versão e atualizações", aberta no lugar das colunas.
 
 Só mostra estado e emite pedidos: quem consulta o GitHub, baixa, instala
 e restaura é o :class:`~polpad.ui.update_controller.UpdateController`.
@@ -13,13 +13,10 @@ from datetime import datetime
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -30,6 +27,7 @@ from ..update.backup import Backup
 from ..update.policy import is_downgrade
 from ..update.releases import AppRelease
 from . import style
+from .page import Page
 
 KIND_LABELS = {
     "windows": "Instalado pelo instalador do Windows",
@@ -60,12 +58,6 @@ def _date(iso: str) -> str:
         return ""
 
 
-def _section(title: str) -> QLabel:
-    label = QLabel(title)
-    label.setObjectName("sectionTitle")
-    return label
-
-
 def _clear(layout: QVBoxLayout) -> None:
     while layout.count():
         item = layout.takeAt(0)
@@ -74,7 +66,9 @@ def _clear(layout: QVBoxLayout) -> None:
             widget.deleteLater()
 
 
-class VersionDialog(QDialog):
+class VersionPage(Page):
+    """Página "Versão e atualizações"; ``closed`` volta à tela inicial."""
+
     check_requested = Signal()
     update_requested = Signal(object)
     install_requested = Signal(object)
@@ -86,34 +80,22 @@ class VersionDialog(QDialog):
     linux_uninstall_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(f"{APP_NAME} — Versão e atualizações")
-        self.resize(560, 640)
+        super().__init__("Versão e atualizações", parent)
         self._view: VersionView | None = None
         self._release_buttons: dict[str, QPushButton] = {}
         self._release_texts: dict[str, str] = {}
         self._backup_buttons: list[QPushButton] = []
 
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
-        body = QWidget()
-        scroll.setWidget(body)
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(10)
-
+        card, layout = self.card("Esta instalação")
         self.version_label = QLabel()
         self.version_label.setObjectName("headline")
         self.kind_label = QLabel()
         self.kind_label.setObjectName("hint")
         layout.addWidget(self.version_label)
         layout.addWidget(self.kind_label)
+        self.body.addWidget(card)
 
-        layout.addWidget(_section("Atualizações"))
+        card, layout = self.card("Atualizações")
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.notes = QTextBrowser()
@@ -140,8 +122,9 @@ class VersionDialog(QDialog):
         layout.addWidget(self.busy_label)
         layout.addWidget(self.error_label)
         layout.addLayout(check_row)
+        self.body.addWidget(card)
 
-        layout.addWidget(_section("Opções"))
+        card, layout = self.card("Opções")
         self.notify_box = QCheckBox("Avisar quando houver nova versão")
         self.notify_box.toggled.connect(self.notify_changed.emit)
         self.auto_box = QCheckBox(
@@ -151,24 +134,25 @@ class VersionDialog(QDialog):
         self.auto_box.toggled.connect(self.auto_changed.emit)
         layout.addWidget(self.notify_box)
         layout.addWidget(self.auto_box)
+        self.body.addWidget(card)
 
-        layout.addWidget(_section("Versões anteriores"))
+        card, layout = self.card("Versões anteriores")
         self._releases_layout = QVBoxLayout()
         layout.addLayout(self._releases_layout)
+        self.body.addWidget(card)
 
-        backups_head = QHBoxLayout()
-        backups_head.addWidget(_section("Cópias dos perfis"), 1)
-        open_folder = QPushButton("Abrir pasta")
-        open_folder.clicked.connect(self.open_backups_requested.emit)
-        backups_head.addWidget(open_folder)
-        layout.addLayout(backups_head)
+        card, layout = self.card("Cópias dos perfis")
         self._backups_layout = QVBoxLayout()
         layout.addLayout(self._backups_layout)
+        open_folder = QPushButton("Abrir pasta")
+        open_folder.clicked.connect(self.open_backups_requested.emit)
+        layout.addWidget(open_folder, 0, Qt.AlignLeft)
+        self.body.addWidget(card)
 
         self.linux_install_button: QPushButton | None = None
         self.linux_uninstall_button: QPushButton | None = None
         if sys.platform.startswith("linux"):
-            layout.addWidget(_section("Menu de aplicativos"))
+            card, layout = self.card("Menu de aplicativos")
             row = QHBoxLayout()
             self.linux_install_button = QPushButton("Instalar no menu")
             self.linux_install_button.clicked.connect(self.linux_install_requested.emit)
@@ -180,7 +164,7 @@ class VersionDialog(QDialog):
             row.addWidget(self.linux_uninstall_button)
             row.addStretch(1)
             layout.addLayout(row)
-        layout.addStretch(1)
+            self.body.addWidget(card)
 
     # ------------------------------------------------------------ estado
 
