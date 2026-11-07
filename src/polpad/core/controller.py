@@ -153,6 +153,16 @@ class Controller:
             return display.icon_frame(profile)
         return display.profile_frame(profile, self._clock())
 
+    def preview_frame(self, profile: Profile):
+        """Quadro de ``profile`` para a prévia da janela.
+
+        O perfil ativo mostra o que está no aparelho agora (inclusive o
+        ícone da troca); os outros mostram a tela que teriam se ativados.
+        """
+        if profile.id == self._store.active_profile_id:
+            return self.current_frame()
+        return display.profile_frame(profile, self._clock())
+
     def tick(self) -> None:
         """Chamado pelo host a cada segundo: atualiza a hora da tela personalizada.
 

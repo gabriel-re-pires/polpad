@@ -1,13 +1,13 @@
-"""Diálogo de gravação do firmware no macropad.
+"""Página de gravação do firmware no macropad.
 
-Reúne em uma janela só o que antes exigia a Arduino IDE: escolher a porta,
+Reúne em uma página só o que antes exigia a Arduino IDE: escolher a porta,
 obter o binário (do release publicado ou de um arquivo local) e gravar,
 acompanhando o progresso e o log.
 
 O trabalho pesado roda em :class:`_FlashJob`, uma ``QThread`` — a interface
-não pode congelar durante os ~20 s de gravação. Enquanto o diálogo está
-aberto, o enlace serial do aplicativo fica pausado: o esptool precisa da
-porta com acesso exclusivo.
+não pode congelar durante os ~20 s de gravação. Durante a gravação o
+enlace serial do aplicativo fica pausado (o esptool precisa da porta com
+acesso exclusivo) e a página não pode ser deixada: ver :meth:`FlashPage.leave`.
 """
 
 from __future__ import annotations
@@ -16,14 +16,12 @@ import logging
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QDialog,
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -32,7 +30,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -41,6 +38,8 @@ from ..device import firmware_release, flasher
 from ..device.firmware_release import FirmwareRelease, ReleaseError
 from ..device.flasher import FirmwareImage, FlashError
 from ..device.link import available_ports
+from . import glyphs, style
+from .page import Page
 
 log = logging.getLogger(__name__)
 
@@ -118,17 +117,23 @@ class _FlashJob(QThread):
         return FirmwareImage.from_path(self._local_path)
 
 
-class FlashDialog(QDialog):
-    """Janela “Gravar firmware”."""
+class FlashPage(Page):
+    """Página "Gravar firmware".
+
+    ``running_changed`` avisa a janela quando a gravação começa e termina,
+    para ela travar a troca de porta enquanto o esptool usa a COM.
+    """
+
+    running_changed = Signal(bool)
 
     def __init__(
         self,
-        parent: QWidget | None,
         core: MacropadApp,
         current_port: str | None = None,
         device_version: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__("Gravar firmware", parent)
         self._core = core
         self._device_version = device_version or ""
         self._release: FirmwareRelease | None = None
@@ -137,15 +142,10 @@ class FlashDialog(QDialog):
         self._cancel = threading.Event()
         self._link_paused = False
 
-        self.setWindowTitle("Gravar firmware no macropad")
-        self.setMinimumWidth(620)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._build_header())
-        layout.addWidget(self._build_device_box())
-        layout.addWidget(self._build_source_box())
-        layout.addWidget(self._build_progress())
-        layout.addLayout(self._build_buttons())
+        self._build_buttons()
+        self.body.addWidget(self._build_device_box())
+        self.body.addWidget(self._build_source_box())
+        self.body.addWidget(self._build_progress())
 
         self._reload_ports(current_port)
         self._refresh_enabled()
@@ -154,36 +154,31 @@ class FlashDialog(QDialog):
 
     # ------------------------------------------------------------- montagem
 
-    def _build_header(self) -> QWidget:
-        text = QLabel(
+    def _build_device_box(self) -> QWidget:
+        box, column = self.card(
+            "Dispositivo",
             "Grava o firmware diretamente no ESP32-C3, sem precisar da "
             "Arduino IDE. Mantenha o macropad conectado pelo cabo USB do "
             "início ao fim — interromper no meio deixa o dispositivo sem "
-            "firmware até uma nova gravação."
+            "firmware até uma nova gravação.",
         )
-        text.setObjectName("hint")
-        text.setWordWrap(True)
-        return text
-
-    def _build_device_box(self) -> QWidget:
-        box = QGroupBox("Dispositivo")
-        row = QHBoxLayout(box)
+        row = QHBoxLayout()
         row.addWidget(QLabel("Porta:"))
         self._port_combo = QComboBox()
-        self._port_combo.setMinimumWidth(260)
+        self._port_combo.setMinimumWidth(220)
         row.addWidget(self._port_combo, stretch=1)
         refresh = QPushButton("Atualizar")
         refresh.clicked.connect(lambda: self._reload_ports(None))
         row.addWidget(refresh)
+        column.addLayout(row)
         installed = self._device_version or "não identificada"
         self._installed_label = QLabel(f"Versão no dispositivo: {installed}")
         self._installed_label.setObjectName("hint")
-        row.addWidget(self._installed_label)
+        column.addWidget(self._installed_label)
         return box
 
     def _build_source_box(self) -> QWidget:
-        box = QGroupBox("Firmware a gravar")
-        column = QVBoxLayout(box)
+        box, column = self.card("Firmware a gravar")
 
         self._source_group = QButtonGroup(self)
         self._release_radio = QRadioButton("Último release publicado no GitHub")
@@ -228,9 +223,7 @@ class FlashDialog(QDialog):
         return box
 
     def _build_progress(self) -> QWidget:
-        holder = QWidget()
-        column = QVBoxLayout(holder)
-        column.setContentsMargins(0, 0, 0, 0)
+        box, column = self.card("Gravação")
         self._stage_label = QLabel("Pronto para gravar.")
         column.addWidget(self._stage_label)
         self._progress = QProgressBar()
@@ -246,23 +239,19 @@ class FlashDialog(QDialog):
         mono.setStyleHint(QFont.Monospace)
         self._log.setFont(mono)
         column.addWidget(self._log)
-        return holder
+        return box
 
-    def _build_buttons(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.addStretch(1)
-        self._flash_button = QPushButton("Gravar firmware")
-        self._flash_button.setObjectName("primary")
-        self._flash_button.clicked.connect(self._start)
-        row.addWidget(self._flash_button)
-        self._cancel_button = QPushButton("Cancelar")
+    def _build_buttons(self) -> None:
+        """Botões no cabeçalho, à direita, como o "Salvar" das Configurações."""
+        self._cancel_button = QPushButton("Cancelar gravação")
         self._cancel_button.clicked.connect(self._request_cancel)
         self._cancel_button.setVisible(False)
-        row.addWidget(self._cancel_button)
-        self._close_button = QPushButton("Fechar")
-        self._close_button.clicked.connect(self.reject)
-        row.addWidget(self._close_button)
-        return row
+        self.header.addWidget(self._cancel_button)
+        self._flash_button = QPushButton("Gravar firmware")
+        self._flash_button.setObjectName("primary")
+        self._flash_button.setIcon(glyphs.icon("chip", style.ACCENT_TEXT))
+        self._flash_button.clicked.connect(self._start)
+        self.header.addWidget(self._flash_button)
 
     # ---------------------------------------------------------------- portas
 
@@ -368,7 +357,7 @@ class FlashDialog(QDialog):
         self._port_combo.setEnabled(not running)
         self._release_radio.setEnabled(not running)
         self._file_radio.setEnabled(not running)
-        self._close_button.setEnabled(not running)
+        self.back_button.setEnabled(not running)
 
         path = self._local_path()
         if not using_release and path is not None:
@@ -385,6 +374,7 @@ class FlashDialog(QDialog):
                 )
         else:
             self._offset_label.setText("")
+        self._offset_label.setVisible(bool(self._offset_label.text()))
 
     # -------------------------------------------------------------- gravação
 
@@ -417,7 +407,7 @@ class FlashDialog(QDialog):
 
         self._flash_button.setVisible(False)
         self._cancel_button.setVisible(True)
-        self._refresh_enabled()
+        self._set_running(True)
         job.start()
 
     def _confirm(self, port: str) -> bool:
@@ -437,7 +427,7 @@ class FlashDialog(QDialog):
             "Cancelar gravação",
             "Cancelar agora deixa a memória do macropad pela metade e o "
             "dispositivo não vai funcionar até uma nova gravação (que pode "
-            "ser feita normalmente por esta janela).\n\nCancelar mesmo assim?",
+            "ser feita normalmente por esta página).\n\nCancelar mesmo assim?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -474,7 +464,11 @@ class FlashDialog(QDialog):
         self._cancel_button.setVisible(False)
         self._cancel_button.setEnabled(True)
         self._resume_link()
+        self._set_running(False)
+
+    def _set_running(self, running: bool) -> None:
         self._refresh_enabled()
+        self.running_changed.emit(running)
 
     def _resume_link(self) -> None:
         if self._link_paused:
@@ -483,29 +477,21 @@ class FlashDialog(QDialog):
 
     # ----------------------------------------------------------------- ciclo
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — API Qt
-        """Impede fechar no meio da gravação — sair agora tijolaria o chip."""
+    def leave(self) -> bool:
+        """Chamado pela janela antes de sair da página.
+
+        Recusa no meio da gravação — sair agora tijolaria o chip — e, fora
+        dela, devolve a porta ao enlace do aplicativo.
+        """
         if self._job is not None and self._job.isRunning():
             QMessageBox.warning(
                 self,
                 "Gravar firmware",
-                "A gravação está em andamento. Aguarde o fim ou use Cancelar.",
+                "A gravação está em andamento. Aguarde o fim ou use "
+                "Cancelar gravação.",
             )
-            event.ignore()
-            return
+            return False
         if self._query is not None and self._query.isRunning():
             self._query.wait(2000)
         self._resume_link()
-        super().closeEvent(event)
-
-
-def open_flash_dialog(
-    parent: QWidget | None,
-    core: MacropadApp,
-    current_port: str | None = None,
-    device_version: str | None = None,
-) -> None:
-    """Abre o diálogo de forma modal (usado pela janela principal)."""
-    dialog = FlashDialog(parent, core, current_port, device_version)
-    dialog.setAttribute(Qt.WA_DeleteOnClose, False)
-    dialog.exec()
+        return True

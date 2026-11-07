@@ -30,6 +30,14 @@ def main() -> int:
     if menu is not None:
         return menu
 
+    from .update import setup_lock
+
+    if setup_lock.setup_running():
+        # Os arquivos estão sendo trocados; o instalador reabre o Polpad
+        # no fim. Sai já, sem janela: um processo parado aqui prenderia o
+        # Polpad.exe que o instalador precisa substituir.
+        return 0
+
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 

@@ -61,7 +61,7 @@ from ..device.link import available_ports, permission_hint
 from . import app_icon, glyphs, style
 from .action_page import ActionEditorPage
 from .collapsible import RAIL_W, CollapsibleSide, bare_icon_button
-from .flash_dialog import open_flash_dialog
+from .flash_dialog import FlashPage
 from .inspector import Inspector
 from .key_grid import DeviceView
 from .port_combo import PortCombo
@@ -117,7 +117,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1040, 620)
         self._quitting = False
         self._updates: UpdateController | None = None
-        self._tray_notified = False
         self._setup_tray()
 
         root = QWidget()
@@ -267,11 +266,11 @@ class MainWindow(QMainWindow):
         )
         settings_act.triggered.connect(self._open_settings)
         updates_act = menu.addAction(
-            glyphs.icon("import", style.TEXT), "Versão e atualizações…"
+            glyphs.icon("import", style.TEXT), "Versão e atualizações"
         )
         updates_act.triggered.connect(self._open_updates)
-        flash_act = menu.addAction(glyphs.icon("chip", style.TEXT), "Gravar firmware…")
-        flash_act.triggered.connect(self._open_flash_dialog)
+        flash_act = menu.addAction(glyphs.icon("chip", style.TEXT), "Gravar firmware")
+        flash_act.triggered.connect(self._open_flash_page)
         ports_act = menu.addAction(
             glyphs.icon("refresh", style.TEXT), "Procurar portas novamente\tF5"
         )
@@ -424,13 +423,26 @@ class MainWindow(QMainWindow):
 
     def set_update_controller(self, controller: UpdateController) -> None:
         self._updates = controller
+        controller.show_page = self._show_version_page
 
     def _open_updates(self) -> None:
         if self._updates is not None:
-            self._updates.open_dialog()
+            self._updates.open_page()
+
+    def _show_version_page(self, page: QWidget) -> None:
+        """Mostra "Versão e atualizações" (também vem de "Ver novidades")."""
+        self.present()
+        if page is self._overlay:
+            return
+        if self._show_overlay(page):
+            page.closed.connect(self._close_overlay)
 
     def quit_app(self) -> None:
         """Encerra de verdade (fechar a janela apenas minimiza à bandeja)."""
+        if self._overlay is not None and not self._can_leave(self._overlay):
+            # Gravação do firmware em andamento: sair agora estragaria o chip.
+            self.present()
+            return
         if self._updates is not None:
             # Atualização automática pendente: instala ao sair, sem reabrir.
             self._updates.before_quit()
@@ -623,6 +635,7 @@ class MainWindow(QMainWindow):
             self._selected_key = None
         self._editing_profile_id = profile_id
         self._refresh_stage()
+        self._refresh_preview()
 
     def _on_icon_changed(self) -> None:
         self._profile_panel.refresh()
@@ -677,7 +690,9 @@ class MainWindow(QMainWindow):
         )
         page.done.connect(lambda editor, k=key: self._on_action_edited(k, editor))
         page.closed.connect(self._close_overlay)
-        self._show_overlay(page)
+        if not self._show_overlay(page):
+            page.deleteLater()
+            return
         page.focus_form()
 
     def _on_action_edited(self, key: int, editor) -> None:
@@ -742,7 +757,7 @@ class MainWindow(QMainWindow):
         # ativo, o aparelho precisa do quadro novo.
         if self._editing_profile_id == self._core.store.active_profile_id:
             self._core.controller.push_display()
-            self._refresh_preview()
+        self._refresh_preview()
 
     def _on_key_menu(self, key: int) -> None:
         """Menu de contexto da tecla: operações rápidas sem abrir o editor."""
@@ -802,33 +817,60 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- diálogos
 
-    def _open_flash_dialog(self) -> None:
+    def _open_flash_page(self) -> None:
         """Abre a gravação do firmware, já apontada para a porta em uso."""
-        open_flash_dialog(
-            self,
+        if isinstance(self._overlay, FlashPage):
+            return
+        page = FlashPage(
             self._core,
             current_port=self._connected_port,
             device_version=self._device_version,
         )
-        # A gravação reinicia o ESP32: as portas podem ter mudado de número.
-        self._reload_ports()
+        page.closed.connect(self._close_overlay)
+        page.running_changed.connect(self._on_flash_running)
+        if not self._show_overlay(page):
+            page.deleteLater()
 
-    def _show_overlay(self, page: QWidget) -> None:
-        """Mostra ``page`` no lugar das colunas (uma por vez)."""
-        self._close_overlay()
+    def _on_flash_running(self, running: bool) -> None:
+        # Trocar de porta no meio da gravação religaria o enlace na COM que
+        # o esptool está usando.
+        self._port_combo.setEnabled(not running)
+        if not running:
+            # A gravação reinicia o ESP32: as portas podem ter mudado de número.
+            self._reload_ports()
+
+    def _show_overlay(self, page: QWidget) -> bool:
+        """Mostra ``page`` no lugar das colunas (uma por vez).
+
+        Devolve ``False`` se a página aberta não pode ser deixada agora.
+        """
+        if page is self._overlay:
+            self._pages.setCurrentWidget(page)
+            return True
+        if not self._close_overlay():
+            return False
         self._overlay = page
         self._pages.addWidget(page)
         self._pages.setCurrentWidget(page)
+        return True
 
-    def _close_overlay(self) -> None:
+    def _can_leave(self, page: QWidget) -> bool:
+        """Páginas com ``leave()`` (a do firmware) podem recusar a saída."""
+        leave = getattr(page, "leave", None)
+        return bool(leave()) if callable(leave) else True
+
+    def _close_overlay(self) -> bool:
         page = self._overlay
         if page is None:
-            return
+            return True
+        if not self._can_leave(page):
+            return False
         self._overlay = None
         self._settings_page = None
         self._pages.setCurrentIndex(0)
         self._pages.removeWidget(page)
         page.deleteLater()
+        return True
 
     def _open_settings(self) -> None:
         """Abre as configurações como página, no lugar das colunas."""
@@ -848,7 +890,9 @@ class MainWindow(QMainWindow):
         page.reset_profiles_requested.connect(self._reset_profiles)
         if self._updates is not None:
             page.uninstall_requested.connect(self._updates.uninstall)
-        self._show_overlay(page)
+        if not self._show_overlay(page):
+            page.deleteLater()
+            return
         self._settings_page = page
 
     def _close_settings(self) -> None:
@@ -961,19 +1005,25 @@ class MainWindow(QMainWindow):
     def _on_clock(self) -> None:
         if (
             self.isVisible()
-            and (active := self._core.store.active_profile) is not None
-            and active.display.mode == "personalizado"
+            and (shown := self._core.store.profile_by_id(self._editing_profile_id))
+            is not None
+            and shown.display.mode == "personalizado"
         ):
             self._refresh_preview()
 
     def _refresh_preview(self) -> None:
-        """Espelha no aparelho da tela o que o display físico está mostrando.
+        """Mostra no aparelho da tela o display do perfil em edição.
 
         O quadro vem do mesmo código que o envia ao dispositivo, então o
-        preview nunca diverge do hardware. Ele mostra o perfil ATIVO — é o
-        que está no aparelho —, mesmo enquanto outro perfil é editado.
+        preview nunca diverge do hardware. Para o perfil ativo ele espelha
+        o aparelho (inclusive o ícone da troca); para os outros, mostra a
+        tela que o display terá quando o perfil for ativado.
         """
-        frame = self._core.controller.current_frame()
+        store = self._core.store
+        profile = store.profile_by_id(self._editing_profile_id) or store.active_profile
+        if profile is None:
+            return
+        frame = self._core.controller.preview_frame(profile)
         if frame is not None:
             self._device.oled.show_frame(frame)
 
@@ -985,17 +1035,9 @@ class MainWindow(QMainWindow):
         self._save_layout()
         if not self._quitting and self._tray.isVisible():
             # Fechar a janela apenas esconde: o macropad continua funcionando.
+            # Sem aviso na bandeja: repetido a cada sessão, só incomodava.
             event.ignore()
             self.hide()
-            if not self._tray_notified:
-                self._tray_notified = True
-                self._tray.showMessage(
-                    APP_NAME,
-                    "Continuo rodando em segundo plano — o macropad segue "
-                    "funcionando. Use o ícone da bandeja para reabrir ou sair.",
-                    QSystemTrayIcon.Information,
-                    5000,
-                )
             return
         super().closeEvent(event)
         self._shutdown_and_quit()

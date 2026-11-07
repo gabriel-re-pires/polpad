@@ -38,7 +38,7 @@ from ..core.store import Store
 from ..update import backup, installer, linux_install, policy, releases
 from ..update.state import Pending, Switch, UpdateState, state_path, updates_dir
 from .update_toast import UpdateToast
-from .version_dialog import VersionDialog, VersionView
+from .version_dialog import VersionPage, VersionView
 
 log = logging.getLogger(__name__)
 
@@ -280,7 +280,10 @@ class UpdateController(QObject):
         self._switching = False
         self._cancel = threading.Event()
         self._jobs: set[_Job] = set()
-        self._dialog: VersionDialog | None = None
+        self._page: VersionPage | None = None
+        # Quem mostra a página dentro da janela principal (``MainWindow``).
+        # Sem ele, a página abre como janela própria.
+        self.show_page: Callable[[QWidget], None] | None = None
         self._progress = _Progress()
         self._progress.changed.connect(self._on_progress)
 
@@ -290,7 +293,7 @@ class UpdateController(QObject):
         self.toast = UpdateToast(notify=center.post if center is not None else None)
         self.toast.update_clicked.connect(self._on_toast_update)
         self.toast.install_now_clicked.connect(self._install_pending_now)
-        self.toast.details_clicked.connect(self.open_dialog)
+        self.toast.details_clicked.connect(self.open_page)
         self.toast.retry_clicked.connect(self._on_retry)
         self.toast.dismissed.connect(self._on_dismissed)
         self._timer = QTimer(self)
@@ -344,11 +347,11 @@ class UpdateController(QObject):
         for job in list(self._jobs):
             if not job.wait(JOB_WAIT_MS):
                 log.warning("tarefa do atualizador não terminou a tempo")
-        for widget in (self.toast, self._dialog):
+        for widget in (self.toast, self._page):
             if widget is not None and shiboken6.isValid(widget):
                 widget.close()
                 shiboken6.delete(widget)
-        self._dialog = None
+        self._page = None
 
     def before_quit(self) -> None:
         """Ao sair pela bandeja: instala a pendente sem reabrir."""
@@ -379,7 +382,7 @@ class UpdateController(QObject):
             return
         self._checking = True
         self._checking_for_user = user
-        self._refresh_dialog()
+        self._refresh_page()
 
         def done(found: list[releases.AppRelease]) -> None:
             self._checking = False
@@ -395,14 +398,14 @@ class UpdateController(QObject):
                     update, self.store.settings.update_notify, self._dismissed
                 ):
                     self.toast.show_available(update.version, self.current)
-            self._refresh_dialog()
+            self._refresh_page()
 
         def failed(message: str) -> None:
             self._checking = False
             log.info("verificação de atualização falhou: %s", message)
             if user:
                 self.error = message
-            self._refresh_dialog()
+            self._refresh_page()
 
         self._runner(
             lambda: releases.list_releases(self._session, self._platform), done, failed
@@ -421,7 +424,7 @@ class UpdateController(QObject):
         # O aviso "versão nova" guardado na central já não vale.
         if self._center is not None:
             self._center.clear()
-        self._refresh_dialog()
+        self._refresh_page()
 
         if self._auto_download == release.version:
             # O download automático desta versão já está em andamento.
@@ -462,7 +465,7 @@ class UpdateController(QObject):
         self._user_update = None
         self.error = message
         self.toast.show_error(message)
-        self._refresh_dialog()
+        self._refresh_page()
 
     def _ensure_pending(self, release: releases.AppRelease) -> None:
         """Atualização automática: deixa esta versão baixada e conferida."""
@@ -499,7 +502,7 @@ class UpdateController(QObject):
             st.save(path)
             if self.store.settings.update_notify:
                 self.toast.show_pending(release.version)
-            self._refresh_dialog()
+            self._refresh_page()
 
         def failed(message: str) -> None:
             self._auto_download = None
@@ -574,27 +577,37 @@ class UpdateController(QObject):
         _discard_pending(self.data_dir)
         if self.toast.current_action == "install_now":
             self.toast.hide()
-        self._refresh_dialog()
+        self._refresh_page()
 
     # ------------------------------------------------------------ página
 
-    def open_dialog(self) -> None:
-        if self._dialog is None:
-            dialog = VersionDialog(self._parent)
-            dialog.check_requested.connect(lambda: self.check_now(user=True))
-            dialog.update_requested.connect(self.begin_update)
-            dialog.install_requested.connect(self.begin_update)
-            dialog.restore_requested.connect(self._restore)
-            dialog.open_backups_requested.connect(self._open_backups)
-            dialog.notify_changed.connect(self.set_notify)
-            dialog.auto_changed.connect(self.set_auto)
-            dialog.linux_install_requested.connect(self._linux_install)
-            dialog.linux_uninstall_requested.connect(self._linux_uninstall)
-            self._dialog = dialog
-        self._refresh_dialog()
-        self._dialog.show()
-        self._dialog.raise_()
-        self._dialog.activateWindow()
+    def open_page(self) -> None:
+        """Abre "Versão e atualizações" (pelo menu ou por "Ver novidades").
+
+        A janela principal apaga a página quando o usuário volta; na próxima
+        abertura, uma nova é criada.
+        """
+        page = self._page
+        if page is None or not shiboken6.isValid(page):
+            page = VersionPage()
+            page.check_requested.connect(lambda: self.check_now(user=True))
+            page.update_requested.connect(self.begin_update)
+            page.install_requested.connect(self.begin_update)
+            page.restore_requested.connect(self._restore)
+            page.open_backups_requested.connect(self._open_backups)
+            page.notify_changed.connect(self.set_notify)
+            page.auto_changed.connect(self.set_auto)
+            page.linux_install_requested.connect(self._linux_install)
+            page.linux_uninstall_requested.connect(self._linux_uninstall)
+            self._page = page
+        self._refresh_page()
+        if self.show_page is not None:
+            self.show_page(page)
+        else:
+            page.closed.connect(page.close)
+            page.show()
+            page.raise_()
+            page.activateWindow()
         if not self.releases and not self._checking:
             self.check_now(user=True)
 
@@ -612,9 +625,9 @@ class UpdateController(QObject):
             busy=self.busy,
         )
 
-    def _refresh_dialog(self) -> None:
-        if self._dialog is not None and shiboken6.isValid(self._dialog):
-            self._dialog.set_view(self.view())
+    def _refresh_page(self) -> None:
+        if self._page is not None and shiboken6.isValid(self._page):
+            self._page.set_view(self.view())
 
     def _restore(self, item: backup.Backup) -> None:
         backup.restore(self.data_dir, item, self.current, now=self._now())
@@ -642,7 +655,7 @@ class UpdateController(QObject):
             "O Polpad saiu do menu de aplicativos. Este executável continua "
             "funcionando de onde está.",
         )
-        self._refresh_dialog()
+        self._refresh_page()
 
     # ------------------------------------------------------------ desinstalar
 

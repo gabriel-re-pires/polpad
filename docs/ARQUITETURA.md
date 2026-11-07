@@ -11,8 +11,8 @@ o que permite testá-la isoladamente (100 testes em `tests/`).
 │  ui/  (PySide6)                                     │
 │  MainWindow · DeviceView · Inspector · ProfilePanel │
 │  OledPreview · ActionEditorPage · PortCombo         │
-│  SettingsDialog · style (tokens) · glyphs           │
-│  FlashDialog                                        │
+│  SettingsPage · FlashPage · VersionPage (páginas)   │
+│  style (tokens) · glyphs                            │
 └──────────────┬──────────────────────────────────────┘
                │ sinais Qt (DeviceBridge)
 ┌──────────────▼──────────────────────────────────────┐
@@ -130,10 +130,11 @@ o que permite testá-la isoladamente (100 testes em `tests/`).
    compilação. A exportação crua (`*.ino.bin`) continua aceita e vai para
    0x10000, distinguida pelo nome.
 
-   Enquanto o diálogo grava, o enlace serial é pausado
+   Enquanto a página grava, o enlace serial é pausado
    (`MacropadApp.pause_link`) — o esptool precisa da COM com acesso
-   exclusivo — e retomado ao fim. A gravação roda em uma `QThread` para
-   não congelar a interface durante os ~20 s do processo.
+   exclusivo — e retomado ao fim; nesse meio-tempo a página não pode ser
+   deixada e a troca de porta fica travada. A gravação roda em uma
+   `QThread` para não congelar a interface durante os ~20 s do processo.
 
 ## Segurança
 

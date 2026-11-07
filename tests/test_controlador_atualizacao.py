@@ -13,10 +13,11 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import requests
-from PySide6.QtWidgets import QApplication, QWidget
+import shiboken6
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from polpad.core.store import Store
-from polpad.ui import update_controller
+from polpad.ui import update_controller, version_dialog
 from polpad.update import backup, github, state
 
 from .apoio import ClienteFalso, CofreFalso, RespostaFalsa
@@ -505,3 +506,42 @@ class PlataformaTest(Base):
         controlador.check_now(user=False)
         self.assertIsNotNone(controlador.update)
         self.assertEqual(controlador.update.asset_name, "Polpad-linux-x86_64.tar.gz")
+
+
+class PaginaDeVersaoTest(Base):
+    """"Versão e atualizações" abre como página dentro da janela."""
+
+    def _com_paginas(self):
+        controlador = self._controlador()
+        self.mostradas = []
+        controlador.show_page = self.mostradas.append
+        return controlador
+
+    def test_abre_como_pagina(self):
+        controlador = self._com_paginas()
+        controlador.open_page()
+        self.assertEqual(len(self.mostradas), 1)
+        self.assertIsInstance(self.mostradas[0], version_dialog.VersionPage)
+        self.assertNotIsInstance(self.mostradas[0], QDialog)
+
+    def test_ver_novidades_abre_a_pagina(self):
+        controlador = self._com_paginas()
+        controlador.toast.details_clicked.emit()
+        self.assertIsInstance(self.mostradas[0], version_dialog.VersionPage)
+
+    def test_abrir_de_novo_reaproveita_a_pagina(self):
+        controlador = self._com_paginas()
+        controlador.open_page()
+        controlador.open_page()
+        self.assertIs(self.mostradas[0], self.mostradas[1])
+
+    def test_pagina_fechada_e_recriada(self):
+        controlador = self._com_paginas()
+        controlador.open_page()
+        shiboken6.delete(self.mostradas[0])
+        controlador.check_now(user=True)  # atualizar o estado não pode quebrar
+        controlador.open_page()
+        self.assertTrue(shiboken6.isValid(self.mostradas[1]))
+        self.assertEqual(
+            self.mostradas[1].version_label.text(), f"Polpad {controlador.current}"
+        )
