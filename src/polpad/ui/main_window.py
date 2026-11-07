@@ -612,10 +612,6 @@ class MainWindow(QMainWindow):
         if message.get("t") != "key" or message.get("e") != "down":
             return
         key = int(message.get("k", -1))
-        page = self._settings_page
-        if page is not None and page.capturing_mode_key:
-            page.key_captured(key)
-            return
         # Acende a tecla no aparelho da tela: confirma visualmente que o
         # dispositivo chegou até o software, mesmo quando a ação não tem
         # efeito visível.
@@ -878,6 +874,7 @@ class MainWindow(QMainWindow):
         if not self._can_leave(page):
             return False
         self._overlay = None
+        self._cancel_capture()
         self._settings_page = None
         self._pages.setCurrentIndex(0)
         self._pages.removeWidget(page)
@@ -900,6 +897,7 @@ class MainWindow(QMainWindow):
         page.closed.connect(self._close_overlay)
         page.reset_settings_requested.connect(self._reset_settings)
         page.reset_profiles_requested.connect(self._reset_profiles)
+        page.capture_started.connect(self._start_capture)
         if self._updates is not None:
             page.uninstall_requested.connect(self._updates.uninstall)
         if not self._show_overlay(page):
@@ -909,6 +907,27 @@ class MainWindow(QMainWindow):
 
     def _close_settings(self) -> None:
         self._close_overlay()
+
+    # ------------------------------------------------- captura da tecla de modo
+
+    def _start_capture(self) -> None:
+        """A próxima tecla do macropad vai para as configurações.
+
+        Quem desvia é o controlador: se a janela só repassasse a tecla à
+        página, ele executaria a ação dela do mesmo jeito.
+        """
+        self._core.controller.key_capture = self._on_key_captured
+
+    def _on_key_captured(self, key: int) -> None:
+        page = self._settings_page
+        if page is not None:
+            page.key_captured(key)
+
+    def _cancel_capture(self) -> None:
+        self._core.controller.key_capture = None
+        page = self._settings_page
+        if page is not None:
+            page.cancel_capture()
 
     def _on_settings_saved(self) -> None:
         self._core.store.save()
@@ -1049,6 +1068,9 @@ class MainWindow(QMainWindow):
             # Fechar a janela apenas esconde: o macropad continua funcionando.
             # Sem aviso na bandeja: repetido a cada sessão, só incomodava.
             event.ignore()
+            # Com a janela escondida, uma captura pendente engoliria a
+            # próxima tecla sem ninguém ver.
+            self._cancel_capture()
             self.hide()
             return
         super().closeEvent(event)

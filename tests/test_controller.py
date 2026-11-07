@@ -66,6 +66,25 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(len(self.runner.submitted), 1)
         self.assertEqual(self.runner.submitted[0].params["text"], "olá")
 
+    def test_captura_recebe_a_tecla_e_nao_executa_a_acao(self):
+        capturadas = []
+        self.controller.key_capture = capturadas.append
+        self._press(0)
+        self.assertEqual(capturadas, [0])
+        self.assertEqual(self.runner.submitted, [])
+        # A captura vale para uma tecla só: a seguinte volta a executar.
+        self.assertIsNone(self.controller.key_capture)
+        self._press(0)
+        self.assertEqual(capturadas, [0])
+        self.assertEqual(len(self.runner.submitted), 1)
+
+    def test_captura_da_tecla_de_modo_nao_troca_o_perfil(self):
+        capturadas = []
+        self.controller.key_capture = capturadas.append
+        self._press(17)
+        self.assertEqual(capturadas, [17])
+        self.assertEqual(self.store.active_profile.name, "A")
+
     def test_key_up_and_unbound_keys_are_ignored(self):
         self.controller.handle_message({"t": "key", "k": 0, "e": "up"})
         self._press(3)  # sem ação
