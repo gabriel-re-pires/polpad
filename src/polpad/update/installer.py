@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tarfile
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -140,7 +141,9 @@ def swap_linux(package: Path, target: Path) -> None:
     except PermissionError as exc:
         new.unlink(missing_ok=True)
         raise InstallError(f"Sem permissão para gravar em {target.parent}.") from exc
-    except (KeyError, tarfile.TarError) as exc:
+    except (KeyError, tarfile.TarError, EOFError, zlib.error) as exc:
+        # Um .tar.gz cortado (download pela metade) termina em EOFError ou
+        # zlib.error ao ler o membro, não em TarError.
         new.unlink(missing_ok=True)
         raise InstallError("O pacote baixado está danificado.") from exc
     except InstallError:

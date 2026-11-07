@@ -138,6 +138,8 @@ class FlashPage(Page):
         self._device_version = device_version or ""
         self._release: FirmwareRelease | None = None
         self._job: _FlashJob | None = None
+        # Versão do que está sendo gravado ("" para um .bin local).
+        self._job_version = ""
         self._query: _ReleaseQuery | None = None
         self._cancel = threading.Event()
         self._link_paused = False
@@ -390,9 +392,12 @@ class FlashPage(Page):
         self._progress.setValue(0)
         self._link_paused = self._core.pause_link()
 
+        release = self._release if self._release_radio.isChecked() else None
+        # A versão vai para a mensagem de sucesso; um .bin local não tem uma.
+        self._job_version = release.version if release is not None else ""
         job = _FlashJob(
             port=str(port),
-            release=self._release if self._release_radio.isChecked() else None,
+            release=release,
             local_path=None if self._release_radio.isChecked() else self._local_path(),
             cancel=self._cancel,
             parent=self,
@@ -407,8 +412,10 @@ class FlashPage(Page):
 
         self._flash_button.setVisible(False)
         self._cancel_button.setVisible(True)
-        self._set_running(True)
+        # Primeiro o job: ``_refresh_enabled`` olha ``isRunning()`` para
+        # travar Voltar, porta e origens.
         job.start()
+        self._set_running(True)
 
     def _confirm(self, port: str) -> bool:
         answer = QMessageBox.question(
@@ -443,7 +450,7 @@ class FlashPage(Page):
     def _on_success(self) -> None:
         self._progress.setValue(100)
         self._stage_label.setText("Firmware gravado com sucesso.")
-        version = self._release.version if self._release else ""
+        version = self._job_version
         detail = f" (versão {version})" if version else ""
         QMessageBox.information(
             self,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+import tarfile
 import tempfile
 import unittest
 from datetime import datetime, timedelta
@@ -186,6 +188,42 @@ class StartupTest(Base):
         self.assertEqual(self.processos, [])
         self.assertIsNone(self._estado().pending)
         self.assertIsNone(self._estado().switch)
+
+    def test_pendente_linux_danificada_nao_deixa_troca_marcada(self):
+        alvo = self.dados / "bin" / "polpad"
+        alvo.parent.mkdir()
+        alvo.write_bytes(b"\x7fELF velho")
+        executavel = b"\x7fELF" + os.urandom(256 * 1024)
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            info = tarfile.TarInfo("Polpad-Linux/Polpad")
+            info.size = len(executavel)
+            tar.addfile(info, io.BytesIO(executavel))
+        # Cortado ao meio, mas com a soma conferida: o release já veio assim.
+        cortado = buffer.getvalue()[: len(buffer.getvalue()) // 2]
+        arquivo = self.dados / "updates" / "v0.5.1" / "Polpad-linux-x86_64.tar.gz"
+        arquivo.parent.mkdir(parents=True)
+        arquivo.write_bytes(cortado)
+        soma = hashlib.sha256(cortado).hexdigest()
+        state.UpdateState(pending=state.Pending("0.5.1", str(arquivo), soma)).save(
+            state.state_path(self.dados)
+        )
+        resultado = update_controller.startup(
+            self.dados,
+            "0.5.0",
+            frozen=True,
+            platform="linux",
+            executable=str(alvo),
+            launcher=self.processos.append,
+            now=lambda: AGORA,
+        )
+        self.assertEqual(resultado.action, "continue")
+        self.assertEqual(self.processos, [])
+        self.assertEqual(alvo.read_bytes(), b"\x7fELF velho")
+        estado = self._estado()
+        self.assertIsNone(estado.switch)
+        self.assertIsNone(estado.pending)
+        self.assertFalse(arquivo.exists())
 
     def test_startup_descarta_pendente_velha(self):
         arquivo = self._pendente("0.5.0")

@@ -2,6 +2,7 @@
 
 import unittest
 
+import polpad.actions.builtin  # noqa: F401  (registra os tipos de ação)
 from polpad.actions.base import ActionContext, ActionError, get
 from polpad.core.models import Profile, Settings
 from polpad.integrations.foreground import match_profile

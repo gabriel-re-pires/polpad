@@ -89,8 +89,39 @@ def resolve(name: str) -> Key | KeyCode:
     if name in _SPECIAL:
         return _SPECIAL[name]
     if len(name) == 1:
+        # No Windows a tecla vai pelo código virtual: dada como caractere,
+        # com Shift pressionado o pynput a troca pela maiúscula e manda um
+        # pacote Unicode sem código de tecla (Ctrl+Shift+P não chega como
+        # atalho). No Linux fica como estava.
+        if sys.platform == "win32":
+            vk = _char_vk(name)
+            if vk is not None:
+                return KeyCode.from_vk(vk)
         return KeyCode.from_char(name)
     raise ValueError(f"tecla desconhecida: {name!r}")
+
+
+def _vk_key_scan(char: str) -> int:
+    """``VkKeyScanW``: byte baixo = código virtual, alto = modificadores."""
+    if sys.platform != "win32":
+        return -1
+    import ctypes
+
+    return int(ctypes.windll.user32.VkKeyScanW(ctypes.c_wchar(char)))
+
+
+def _char_vk(char: str) -> int | None:
+    """Código virtual da tecla que digita ``char`` sem modificadores.
+
+    ``None`` se o layout não tiver essa tecla ou se ela só sair com Shift
+    ou AltGr (ex.: "!"): aí o caractere segue como antes.
+    """
+    if "a" <= char <= "z" or "0" <= char <= "9":
+        return ord(char.upper())
+    scan = _vk_key_scan(char) & 0xFFFF
+    if scan == 0xFFFF or scan & 0xFF00:
+        return None
+    return scan & 0xFF
 
 
 def is_valid(name: str) -> bool:
@@ -134,6 +165,14 @@ _QT_SPECIAL: dict[int, str] = {
     0x01000055: "menu",
 }
 _QT_SPECIAL.update({0x01000030 + i: f"f{i + 1}" for i in range(20)})  # Key_F1..F20
+
+# Teclas do ABNT2 que não são letra nem número: o código do Qt não depende
+# dos modificadores, e o nome é o caractere que ``resolve`` aceita.
+_QT_CHARS: dict[int, str] = {
+    0xC7: "ç",          # Qt.Key_Ccedilla
+    0x01001251: "´",    # Qt.Key_Dead_Acute
+    0x01001253: "~",    # Qt.Key_Dead_Tilde
+}
 
 _QT_MODIFIERS = (
     (0x04000000, "ctrl"),   # Qt.ControlModifier
@@ -241,6 +280,8 @@ def names_from_event(
         names.append(main)
     elif key in _QT_SPECIAL:
         names.append(_QT_SPECIAL[key])
+    elif key in _QT_CHARS:
+        names.append(_QT_CHARS[key])
     elif 0x20 < key < 0x7F:
         names.append(chr(key).lower())
     else:
