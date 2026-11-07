@@ -38,7 +38,7 @@ class SecretVault(Protocol):
     """
 
     def store(self, name: str, value: str) -> bool: ...
-    def load(self, name: str) -> str: ...
+    def load(self, name: str) -> str | None: ...
 
 
 def default_data_dir() -> Path:
@@ -71,6 +71,9 @@ class Store:
         # gravações simultâneas no mesmo temporário deixavam a
         # configuração pela metade.
         self._write_lock = threading.RLock()
+        # Segredos que o cofre não deixou ler. Enquanto continuarem vazios
+        # em memória, save() não os apaga do cofre.
+        self._unreadable: set[str] = set()
 
     # ------------------------------------------------------------------ IO
 
@@ -87,8 +90,10 @@ class Store:
             self._create_default()
             return
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            # utf-8-sig: editores como o Bloco de Notas gravam com BOM.
+            # ValueError cobre JSON inválido e texto fora de UTF-8.
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (ValueError, OSError) as exc:
             log.warning("configuração ilegível (%s); recomeçando do padrão", exc)
             self._backup(path)
             self._create_default()
@@ -172,9 +177,14 @@ class Store:
         Um valor ainda presente no arquivo (instalação anterior à mudança)
         tem precedência e é migrado para o cofre no próximo ``save()``.
         """
+        self._unreadable.clear()
         for campo in _SECRET_FIELDS:
             if not getattr(self.settings, campo):
-                setattr(self.settings, campo, self._vault.load(campo))
+                valor = self._vault.load(campo)
+                if valor is None:
+                    self._unreadable.add(campo)
+                    valor = ""
+                setattr(self.settings, campo, valor)
 
     def _store_secrets(self, data: dict[str, Any]) -> None:
         """Move as credenciais do dicionário a salvar para o cofre.
@@ -186,8 +196,14 @@ class Store:
         if not isinstance(settings_data, dict):
             return
         for campo in _SECRET_FIELDS:
-            if self._vault.store(campo, getattr(self.settings, campo)):
+            valor = getattr(self.settings, campo)
+            if not valor and campo in self._unreadable:
+                # Vazio só porque o cofre falhou na leitura: apagar agora
+                # perderia o segredo que continua lá.
+                continue
+            if self._vault.store(campo, valor):
                 settings_data[campo] = ""
+                self._unreadable.discard(campo)
 
     def _backup(self, path: Path) -> None:
         """Preserva o arquivo original antes de sobrescrevê-lo.
@@ -244,6 +260,9 @@ class Store:
 
     def _create_default(self) -> None:
         self.settings = Settings()
+        # O config.json pode ter sumido ou estragado, mas os segredos no
+        # cofre continuam valendo; sem isto o save() abaixo os apagaria.
+        self._load_secrets()
         self.profiles = []
         self._create_default_profile()
         self.active_profile_id = self.profiles[0].id
