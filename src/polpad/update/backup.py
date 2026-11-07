@@ -2,7 +2,8 @@
 
 Copia só o que é do usuário — ``config.json`` e ``icons/`` —, não logs,
 cache de firmware, downloads nem os próprios backups. Ficam as ``KEEP``
-cópias mais recentes.
+cópias mais recentes e, além delas, sempre a última feita antes de uma
+atualização: as da Zona de risco não podem empurrá-la para fora.
 """
 
 from __future__ import annotations
@@ -21,6 +22,13 @@ CONFIG = "config.json"
 ICONS = "icons"
 META = "backup.json"
 
+# Por que a cópia foi feita.
+UPDATE = "atualização"
+RISK = "zona de risco"
+RESTORE = "restauração"
+# Cópias anteriores ao campo "kind": só o destino dizia o que eram.
+_LEGACY_NOT_UPDATE = {"configurações padrão", "perfis apagados", "restauração"}
+
 
 @dataclass(frozen=True)
 class Backup:
@@ -28,6 +36,7 @@ class Backup:
     created: datetime
     from_version: str
     to_version: str
+    kind: str = UPDATE
 
     @property
     def label(self) -> str:
@@ -44,6 +53,7 @@ def create(
     to_version: str,
     now: datetime | None = None,
     protect: Path | None = None,
+    kind: str = UPDATE,
 ) -> Backup:
     """Copia os perfis. ``protect`` é poupada da limpeza das antigas."""
     created = now or datetime.now()
@@ -58,10 +68,15 @@ def create(
         shutil.copy2(data_dir / CONFIG, path / CONFIG)
     if (data_dir / ICONS).is_dir():
         shutil.copytree(data_dir / ICONS, path / ICONS)
-    meta = {"created": created.isoformat(), "from": from_version, "to": to_version}
+    meta = {
+        "created": created.isoformat(),
+        "from": from_version,
+        "to": to_version,
+        "kind": kind,
+    }
     (path / META).write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     _prune(data_dir, protect)
-    return Backup(path, created, from_version, to_version)
+    return Backup(path, created, from_version, to_version, kind)
 
 
 def list_backups(data_dir: Path) -> list[Backup]:
@@ -73,12 +88,17 @@ def list_backups(data_dir: Path) -> list[Backup]:
     for path in root.iterdir():
         try:
             meta = json.loads((path / META).read_text(encoding="utf-8"))
+            to_version = str(meta["to"])
+            kind = meta.get("kind") or (
+                RISK if to_version in _LEGACY_NOT_UPDATE else UPDATE
+            )
             result.append(
                 Backup(
                     path,
                     datetime.fromisoformat(meta["created"]),
                     str(meta["from"]),
-                    str(meta["to"]),
+                    to_version,
+                    str(kind),
                 )
             )
         except (OSError, ValueError, KeyError, TypeError):
@@ -92,7 +112,9 @@ def restore(
 ) -> Backup:
     """Volta os perfis de ``backup``, guardando antes o estado atual."""
     # A cópia restaurada pode ser a mais antiga: só sai da lista depois.
-    safety = create(data_dir, current_version, "restauração", now, backup.path)
+    safety = create(
+        data_dir, current_version, "restauração", now, backup.path, RESTORE
+    )
     if (backup.path / CONFIG).is_file():
         shutil.copy2(backup.path / CONFIG, data_dir / CONFIG)
     if (backup.path / ICONS).is_dir():
@@ -103,6 +125,12 @@ def restore(
 
 
 def _prune(data_dir: Path, protect: Path | None = None) -> None:
-    for old in list_backups(data_dir)[KEEP:]:
-        if old.path != protect:
+    copias = list_backups(data_dir)
+    poupadas = {protect}
+    # A última cópia de antes de atualizar fica sempre, mesmo além de KEEP.
+    ultima_atualizacao = next((b for b in copias if b.kind == UPDATE), None)
+    if ultima_atualizacao is not None:
+        poupadas.add(ultima_atualizacao.path)
+    for old in copias[KEEP:]:
+        if old.path not in poupadas:
             shutil.rmtree(old.path, ignore_errors=True)

@@ -23,7 +23,9 @@ def reset_settings(
     As escolhas de atualização ficam: elas moram em "Versão e
     atualizações", não na página que tem o botão.
     """
-    made = backup.create(store.data_dir, current, "configurações padrão", now)
+    made = backup.create(
+        store.data_dir, current, "configurações padrão", now, kind=backup.RISK
+    )
     old = store.settings
     new = Settings(
         update_notify=old.update_notify,
@@ -42,6 +44,8 @@ def reset_profiles(
     store: Store, current: str, now: datetime | None = None
 ) -> backup.Backup:
     """Apaga os perfis e os ícones; fica só o perfil inicial."""
-    made = backup.create(store.data_dir, current, "perfis apagados", now)
+    made = backup.create(
+        store.data_dir, current, "perfis apagados", now, kind=backup.RISK
+    )
     store.reset_profiles()
     return made

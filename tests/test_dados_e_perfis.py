@@ -10,6 +10,7 @@ import json
 import logging
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -17,6 +18,7 @@ from unittest import mock
 from polpad.core import profile_io, reset, secrets
 from polpad.core.models import Action, Profile
 from polpad.core.store import Store
+from polpad.update import backup
 
 from .apoio import CofreFalso
 
@@ -281,6 +283,57 @@ class RestaurarConfiguracoesTest(unittest.TestCase):
         contexto = core.runner._context.settings
         self.assertEqual(contexto.ha_url, "http://novo:8123")
         self.assertEqual(contexto.ha_token, "TOK-NOVO")
+
+
+class CopiaDeAtualizacaoTest(unittest.TestCase):
+    """As cópias da Zona de risco e as de atualização dividiam o mesmo
+    limite de cinco: seis cliques em "Apagar perfis" levavam embora a
+    cópia feita antes de atualizar, a única com os perfis de verdade.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def test_zona_de_risco_nao_apaga_a_copia_da_atualizacao(self):
+        store = Store(data_dir=self.dir, vault=CofreFalso())
+        store.load()
+        store.add_profile("Meu perfil importante")
+        agora = datetime(2026, 11, 7, 10, 0)
+        atualizacao = backup.create(self.dir, "0.7.1", "0.7.2", agora)
+
+        for i in range(1, 7):
+            reset.reset_profiles(store, "0.7.2", agora + timedelta(minutes=i))
+
+        caminhos = [b.path for b in backup.list_backups(self.dir)]
+        self.assertIn(atualizacao.path, caminhos)
+
+    def test_so_a_atualizacao_mais_recente_e_poupada(self):
+        agora = datetime(2026, 11, 7, 10, 0)
+        backup.create(self.dir, "0.7.0", "0.7.1", agora)
+        recente = backup.create(self.dir, "0.7.1", "0.7.2", agora + timedelta(1))
+        store = Store(data_dir=self.dir, vault=CofreFalso())
+        store.load()
+        for i in range(1, 7):
+            reset.reset_profiles(store, "0.7.2", agora + timedelta(2, minutes=i))
+
+        lista = backup.list_backups(self.dir)
+        self.assertEqual([b for b in lista if b.path == recente.path], [lista[-1]])
+        self.assertEqual(len(lista), backup.KEEP + 1)
+
+    def test_copias_antigas_sem_tipo(self):
+        # Feitas antes do campo "kind": o destino diz o que eram.
+        for nome, destino in (("a", "0.7.2"), ("b", "perfis apagados")):
+            pasta = backup.backups_dir(self.dir) / nome
+            pasta.mkdir(parents=True)
+            meta = {"created": "2026-11-07T10:00:00", "from": "0.7.1", "to": destino}
+            (pasta / backup.META).write_text(json.dumps(meta), encoding="utf-8")
+
+        tipos = {b.path.name: b.kind for b in backup.list_backups(self.dir)}
+        self.assertEqual(tipos, {"a": backup.UPDATE, "b": backup.RISK})
 
 
 if __name__ == "__main__":
