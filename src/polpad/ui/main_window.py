@@ -346,7 +346,9 @@ class MainWindow(QMainWindow):
         geometry = settings.value("janela/geometria")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        else:
+        # A geometria salva também passa pelo ajuste: com o mínimo fixo do
+        # __init__, ela voltaria maior que a área útil numa tela pequena.
+        if geometry is None or not self.isMaximized():
             self._fit_to_screen()
         # Chave nova: o estado salvo pela versão de duas colunas não serve.
         splitter_state = settings.value("janela/colunas")
@@ -359,19 +361,25 @@ class MainWindow(QMainWindow):
             side.set_collapsed(str(settings.value(key, "false")).lower() == "true")
 
     def _fit_to_screen(self) -> None:
-        """Na primeira abertura, cabe na área útil da tela.
+        """Cabe na área útil da tela.
 
         O tamanho padrão (1280×760) passa da área útil de um notebook
         1366×768 — painéis e barra de tarefas tomam parte da altura — e o
-        rodapé ficava escondido atrás deles.
+        rodapé ficava escondido atrás deles. Com escala de 125% a área
+        útil cai para 1093×576, menor até que o mínimo da janela; nesse
+        caso o mínimo desce para caber.
         """
         screen = self.screen()
         if screen is None:
             return
         area = screen.availableGeometry()
         title_bar = 40  # a moldura da janela não entra no resize()
-        width = max(min(self.width(), area.width()), self.minimumWidth())
-        height = max(min(self.height(), area.height() - title_bar), self.minimumHeight())
+        min_width = min(self.minimumWidth(), area.width())
+        min_height = min(self.minimumHeight(), area.height() - title_bar)
+        if (min_width, min_height) != (self.minimumWidth(), self.minimumHeight()):
+            self.setMinimumSize(min_width, min_height)
+        width = max(min(self.width(), area.width()), min_width)
+        height = max(min(self.height(), area.height() - title_bar), min_height)
         self.resize(width, height)
 
     def _save_layout(self) -> None:
