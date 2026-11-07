@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from polpad.core import profile_io, secrets
+from polpad.core import profile_io, reset, secrets
 from polpad.core.models import Action, Profile
 from polpad.core.store import Store
 
@@ -244,6 +244,43 @@ class ImportarPerfilTest(unittest.TestCase):
     def test_binario_vira_erro_de_arquivo(self):
         with self.assertRaises(profile_io.ProfileFileError):
             profile_io.from_json(b"\x89PNG\r\n\x1a\n\xff\xfe\x00\x80" * 10)
+
+
+class RestaurarConfiguracoesTest(unittest.TestCase):
+    """"Restaurar configurações" trocava o objeto ``store.settings``, mas o
+    contexto das ações guardava o antigo: as teclas do Home Assistant
+    seguiam com a URL e o token de antes até reiniciar o Polpad.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def test_acoes_enxergam_as_configuracoes_restauradas(self):
+        from PySide6.QtWidgets import QApplication
+
+        import polpad.app as papp
+
+        QApplication.instance() or QApplication([])
+        with mock.patch.object(
+            papp, "Store", lambda: Store(data_dir=self.dir, vault=CofreFalso())
+        ):
+            core = papp.MacropadApp()
+        self.addCleanup(core.shutdown)
+        core.store.settings.ha_url = "http://velho:8123"
+        core.store.settings.ha_token = "TOK-VELHO"
+        core.store.save()
+
+        reset.reset_settings(core.store, "0.7.2")
+        core.store.settings.ha_url = "http://novo:8123"
+        core.store.settings.ha_token = "TOK-NOVO"
+
+        contexto = core.runner._context.settings
+        self.assertEqual(contexto.ha_url, "http://novo:8123")
+        self.assertEqual(contexto.ha_token, "TOK-NOVO")
 
 
 if __name__ == "__main__":

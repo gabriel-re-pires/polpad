@@ -7,6 +7,7 @@ integrações ficam no cofre do sistema, fora da cópia.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 
 from ..update import backup
@@ -24,11 +25,15 @@ def reset_settings(
     """
     made = backup.create(store.data_dir, current, "configurações padrão", now)
     old = store.settings
-    store.settings = Settings(
+    new = Settings(
         update_notify=old.update_notify,
         update_auto=old.update_auto,
         linux_install_prompt=old.linux_install_prompt,
     )
+    # No lugar, e não um objeto novo: o contexto das ações (app.py) guarda
+    # a referência a store.settings e ficaria com a URL e o token antigos.
+    for campo in dataclasses.fields(Settings):
+        setattr(old, campo.name, getattr(new, campo.name))
     store.save()
     return made
 
