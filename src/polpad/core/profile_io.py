@@ -26,8 +26,9 @@ from .models import Profile
 FORMAT = "macropad-profile"
 VERSION = 1
 
-# Tipos de ação que executam algo escolhido por quem criou o perfil.
-SENSITIVE_TYPES = ("command", "launch")
+# Tipos de ação que executam algo escolhido por quem criou o perfil (o
+# webhook manda uma requisição para um endereço escolhido por ele).
+SENSITIVE_TYPES = ("command", "launch", "webhook")
 
 # Limite defensivo para o ícone embutido (o display tem 128x64).
 MAX_ICON_BYTES = 2 * 1024 * 1024
@@ -49,14 +50,40 @@ class ImportedProfile:
 
 def sensitive_actions(profile: Profile) -> list[tuple[int, str]]:
     """Lista ``(tecla, descrição)`` das ações que executam algo na máquina."""
-    encontradas = []
+    encontradas: list[tuple[int, str]] = []
     for key in sorted(profile.bindings):
         action = profile.bindings[key]
-        if action.type not in SENSITIVE_TYPES:
-            continue
-        alvo = action.params.get("command") or action.params.get("target") or ""
-        encontradas.append((key, str(alvo)))
+        for alvo in _sensitive_targets(action.type, action.params):
+            encontradas.append((key, alvo))
     return encontradas
+
+
+def _sensitive_targets(tipo: Any, params: Any, profundidade: int = 0) -> list[str]:
+    """Alvos sensíveis de uma ação, descendo pelos passos das macros.
+
+    O arquivo vem de terceiros: qualquer campo pode ter o tipo errado.
+    """
+    if not isinstance(params, dict):
+        return []
+    if tipo in SENSITIVE_TYPES:
+        alvo = (
+            params.get("command") or params.get("target") or params.get("url") or ""
+        )
+        return [str(alvo)]
+    if tipo != "macro" or profundidade > 5:
+        return []
+    passos = params.get("steps")
+    if not isinstance(passos, list):
+        return []
+    alvos = []
+    for i, passo in enumerate(passos, start=1):
+        if not isinstance(passo, dict):
+            continue
+        for alvo in _sensitive_targets(
+            passo.get("type"), passo.get("params", {}), profundidade + 1
+        ):
+            alvos.append(f"macro, passo {i}: {alvo}")
+    return alvos
 
 
 def to_json(profile: Profile, icon_path: str | None = None) -> str:
@@ -87,8 +114,18 @@ def to_json(profile: Profile, icon_path: str | None = None) -> str:
     return json.dumps(documento, ensure_ascii=False, indent=2)
 
 
-def from_json(texto: str) -> ImportedProfile:
-    """Lê e valida um arquivo de perfil. Lança :class:`ProfileFileError`."""
+def from_json(texto: str | bytes) -> ImportedProfile:
+    """Lê e valida um arquivo de perfil. Lança :class:`ProfileFileError`.
+
+    Aceita o conteúdo já decodificado ou os bytes do arquivo; nos dois
+    casos, um BOM no início (Bloco de Notas) é ignorado.
+    """
+    if isinstance(texto, bytes):
+        try:
+            texto = texto.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ProfileFileError("o arquivo não é um texto UTF-8") from exc
+    texto = texto.removeprefix("﻿")
     try:
         documento = json.loads(texto)
     except json.JSONDecodeError as exc:
@@ -106,6 +143,9 @@ def from_json(texto: str) -> ImportedProfile:
     bruto = documento.get("profile")
     if not isinstance(bruto, dict):
         raise ProfileFileError("o arquivo não contém um perfil")
+    nome = bruto.get("name")
+    if not isinstance(nome, str) or not nome.strip():
+        raise ProfileFileError("o perfil não tem um nome válido")
     # Id novo: importar duas vezes gera dois perfis, sem sobrescrever nada.
     bruto = {**bruto, "id": ""}
     try:
@@ -133,7 +173,12 @@ def _icon_from_document(documento: dict[str, Any]) -> tuple[bytes | None, str]:
         return None, ".png"
     if not bruto or len(bruto) > MAX_ICON_BYTES:
         return None, ".png"
-    suffix = str(icone.get("suffix") or ".png")
-    if not suffix.startswith(".") or len(suffix) > 6:
-        suffix = ".png"
+    # Importação tardia: store importa este módulo.
+    from .store import Store
+
+    suffix = str(icone.get("suffix") or ".png").lower()
+    if suffix not in Store.ICON_SUFFIXES:
+        # Um ".exe" não pode ir parar na pasta de dados; e bytes que não
+        # são de imagem não viram ícone só por trocar a extensão.
+        return None, ".png"
     return bruto, suffix

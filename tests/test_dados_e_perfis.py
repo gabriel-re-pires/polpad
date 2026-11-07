@@ -5,14 +5,17 @@ Cada classe descreve, no comentário inicial, o defeito real que a motivou.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
-from polpad.core import secrets
+from polpad.core import profile_io, secrets
+from polpad.core.models import Action, Profile
 from polpad.core.store import Store
 
 from .apoio import CofreFalso
@@ -145,6 +148,102 @@ class CodificacaoDaConfigTest(unittest.TestCase):
         self.assertGreaterEqual(len(store.profiles), 1)
         self.assertTrue((self.dir / "config.json.bak").exists())
         self.assertEqual((self.dir / "config.json.bak").read_bytes(), bruto)
+
+
+def _documento(perfil: dict[str, Any], **extra: Any) -> str:
+    return json.dumps(
+        {"format": profile_io.FORMAT, "version": 1, "profile": perfil, **extra}
+    )
+
+
+class ImportarPerfilTest(unittest.TestCase):
+    """Arquivos de perfil vindos de terceiros: um nome ``null`` entrava e
+    quebrava o display; uma macro com passo ``command`` e um ``webhook``
+    passavam sem aviso; o sufixo do ícone era usado como veio (um
+    ``.exe`` ia parar na pasta de dados); e um arquivo com BOM ou fora de
+    UTF-8 não era tratado como arquivo inválido.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def test_nome_invalido_e_recusado(self):
+        for nome in (None, 123, ["a"], "", "   "):
+            with self.subTest(nome=nome), self.assertRaises(
+                profile_io.ProfileFileError
+            ):
+                profile_io.from_json(_documento({"name": nome}))
+
+    def test_passo_de_macro_que_executa_e_sinalizado(self):
+        perfil = Profile(name="X")
+        perfil.bindings[0] = Action(
+            type="macro",
+            params={
+                "steps": [
+                    {"type": "hotkey", "params": {"keys": ["ctrl", "c"]}},
+                    {"type": "command", "params": {"command": "del /q arquivo"}},
+                ]
+            },
+        )
+        importado = profile_io.from_json(profile_io.to_json(perfil))
+
+        self.assertEqual(len(importado.sensitive), 1)
+        tecla, alvo = importado.sensitive[0]
+        self.assertEqual(tecla, 0)
+        self.assertIn("del /q arquivo", alvo)
+
+    def test_webhook_e_sinalizado(self):
+        perfil = Profile(name="X")
+        perfil.bindings[1] = Action(
+            type="webhook", params={"url": "http://exemplo.invalid/?k=1"}
+        )
+        importado = profile_io.from_json(profile_io.to_json(perfil))
+
+        self.assertEqual(importado.sensitive, [(1, "http://exemplo.invalid/?k=1")])
+
+    def test_macro_malformada_nao_quebra_a_verificacao(self):
+        perfil = Profile(name="X")
+        perfil.bindings[0] = Action(type="macro", params={"steps": "nao e lista"})
+        perfil.bindings[1] = Action(type="macro", params={"steps": [42, None]})
+        importado = profile_io.from_json(profile_io.to_json(perfil))
+        self.assertEqual(importado.sensitive, [])
+
+    def test_sufixo_de_icone_fora_da_lista_nao_e_usado(self):
+        dados = base64.b64encode(b"MZ" + bytes(50)).decode()
+        documento = _documento({"name": "Y"}, icon={"suffix": ".exe", "data": dados})
+        importado = profile_io.from_json(documento)
+        self.assertIn(importado.icon_suffix, Store.ICON_SUFFIXES)
+
+        store = Store(data_dir=self.dir, vault=CofreFalso())
+        store.load()
+        novo = store.add_imported_profile(importado)
+        self.assertEqual(list(self.dir.rglob("*.exe")), [])
+        if novo.icon_path:
+            self.assertIn(Path(novo.icon_path).suffix, Store.ICON_SUFFIXES)
+
+    def test_sufixo_em_maiusculas_e_aceito(self):
+        dados = base64.b64encode(b"png").decode()
+        documento = _documento({"name": "Y"}, icon={"suffix": ".PNG", "data": dados})
+        importado = profile_io.from_json(documento)
+        self.assertEqual(importado.icon_bytes, b"png")
+        self.assertEqual(importado.icon_suffix, ".png")
+
+    def test_arquivo_com_bom_e_aceito(self):
+        bruto = b"\xef\xbb\xbf" + _documento({"name": "Com BOM"}).encode("utf-8")
+
+        self.assertEqual(profile_io.from_json(bruto).profile.name, "Com BOM")
+        # Lido como texto UTF-8 comum, o BOM vira o caractere U+FEFF.
+        self.assertEqual(
+            profile_io.from_json(bruto.decode("utf-8")).profile.name, "Com BOM"
+        )
+
+    def test_binario_vira_erro_de_arquivo(self):
+        with self.assertRaises(profile_io.ProfileFileError):
+            profile_io.from_json(b"\x89PNG\r\n\x1a\n\xff\xfe\x00\x80" * 10)
 
 
 if __name__ == "__main__":
