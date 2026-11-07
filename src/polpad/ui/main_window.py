@@ -622,6 +622,7 @@ class MainWindow(QMainWindow):
             self._selected_key = None
         self._editing_profile_id = profile_id
         self._refresh_stage()
+        self._refresh_preview()
 
     def _on_icon_changed(self) -> None:
         self._profile_panel.refresh()
@@ -741,7 +742,7 @@ class MainWindow(QMainWindow):
         # ativo, o aparelho precisa do quadro novo.
         if self._editing_profile_id == self._core.store.active_profile_id:
             self._core.controller.push_display()
-            self._refresh_preview()
+        self._refresh_preview()
 
     def _on_key_menu(self, key: int) -> None:
         """Menu de contexto da tecla: operações rápidas sem abrir o editor."""
@@ -960,19 +961,25 @@ class MainWindow(QMainWindow):
     def _on_clock(self) -> None:
         if (
             self.isVisible()
-            and (active := self._core.store.active_profile) is not None
-            and active.display.mode == "personalizado"
+            and (shown := self._core.store.profile_by_id(self._editing_profile_id))
+            is not None
+            and shown.display.mode == "personalizado"
         ):
             self._refresh_preview()
 
     def _refresh_preview(self) -> None:
-        """Espelha no aparelho da tela o que o display físico está mostrando.
+        """Mostra no aparelho da tela o display do perfil em edição.
 
         O quadro vem do mesmo código que o envia ao dispositivo, então o
-        preview nunca diverge do hardware. Ele mostra o perfil ATIVO — é o
-        que está no aparelho —, mesmo enquanto outro perfil é editado.
+        preview nunca diverge do hardware. Para o perfil ativo ele espelha
+        o aparelho (inclusive o ícone da troca); para os outros, mostra a
+        tela que o display terá quando o perfil for ativado.
         """
-        frame = self._core.controller.current_frame()
+        store = self._core.store
+        profile = store.profile_by_id(self._editing_profile_id) or store.active_profile
+        if profile is None:
+            return
+        frame = self._core.controller.preview_frame(profile)
         if frame is not None:
             self._device.oled.show_frame(frame)
 
