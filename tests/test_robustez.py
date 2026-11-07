@@ -659,6 +659,39 @@ class HandshakeTest(unittest.TestCase):
             [("pong", None), ("hello", None), ("key", 5)],
         )
 
+    def test_hello_antigo_nao_reconhece_a_porta_nem_libera_teclas(self):
+        # O hello do boot ficou no buffer junto com teclas apertadas com o
+        # Polpad fechado: só o pong marca a porta, e o que veio antes é velho.
+        ser = self.SerialFalsa(
+            b'{"t":"hello","fw":"2.0.0"}\n'
+            b'{"t":"key","k":3,"e":"down"}\n{"t":"key","k":3,"e":"up"}\n'
+            b'{"t":"pong"}\n{"t":"hello","fw":"2.0.0"}\n'
+        )
+        ok, _, pendentes = self._link()._handshake(ser)
+        self.assertTrue(ok)
+        self.assertEqual([m["t"] for m in pendentes], ["pong", "hello"])
+
+    def test_hello_logo_antes_do_pong_e_entregue(self):
+        # Ao ver o host chegar, o firmware manda hello e, em seguida, o pong.
+        ser = self.SerialFalsa(
+            b'{"t":"hello","fw":"1.0.0"}\n{"t":"key","k":3,"e":"down"}\n'
+            b'{"t":"hello","fw":"2.0.0"}\n{"t":"pong"}\n'
+        )
+        ok, _, pendentes = self._link()._handshake(ser)
+        self.assertTrue(ok)
+        self.assertEqual(
+            [(m["t"], m.get("fw")) for m in pendentes],
+            [("hello", "2.0.0"), ("pong", None)],
+        )
+
+    def test_so_hello_sem_pong_nao_reconhece(self):
+        with mock.patch.object(SerialLink, "HANDSHAKE_TIMEOUT_S", 0.05):
+            ok, _, pendentes = self._link()._handshake(
+                self.SerialFalsa(b'{"t":"hello"}\n{"t":"key","k":3,"e":"down"}\n')
+            )
+        self.assertFalse(ok)
+        self.assertEqual(pendentes, [])
+
     def test_porta_muda_nao_e_reconhecida(self):
         with mock.patch.object(SerialLink, "HANDSHAKE_TIMEOUT_S", 0.05):
             ok, _, pendentes = self._link()._handshake(self.SerialFalsa(b""))

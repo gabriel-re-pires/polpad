@@ -247,7 +247,7 @@ class SerialLink:
         log.info("macropad conectado em %s", port)
         self._on_state(True, port)
         # O que chegou junto com a resposta do handshake (tipicamente o
-        # ``hello`` logo após o ``pong``) é entregue, não descartado.
+        # ``hello`` colado ao ``pong``) é entregue, não descartado.
         for early in pending:
             self._on_message(early)
         last_ping = time.monotonic()
@@ -272,10 +272,14 @@ class SerialLink:
         """Confirma que a porta pertence ao macropad antes de anunciá-la.
 
         Devolve ``(reconhecido, resto do buffer, mensagens já decodificadas)``.
-        O firmware responde ao ``ping`` com ``pong`` e, se acabou de nos
-        ver, um ``hello`` na sequência — frequentemente no mesmo pacote.
-        Descartar o resto do buffer perderia esse ``hello`` (e com ele a
-        primeira atualização do display).
+        O firmware responde ao ``ping`` com ``pong``; se acabou de nos ver,
+        manda um ``hello`` logo antes — frequentemente no mesmo pacote.
+        Descartar esse ``hello`` perderia a primeira atualização do display.
+
+        Só o ``pong`` reconhece a porta. Um ``hello`` antigo (o do boot)
+        pode estar represado no buffer junto com teclas apertadas enquanto
+        o aplicativo estava fechado; se ele valesse como resposta, essas
+        teclas seriam executadas agora.
         """
         with self._write_lock:
             ser.write(protocol.encode(protocol.msg_ping()))
@@ -283,6 +287,8 @@ class SerialLink:
         buffer = b""
         pending: list[dict[str, Any]] = []
         recognized = False
+        # ``hello`` visto antes do ``pong``: só é atual se nada vier entre os dois.
+        hello: dict[str, Any] | None = None
         while time.monotonic() < deadline:
             chunk = _read_available(ser)
             if not chunk:
@@ -297,14 +303,24 @@ class SerialLink:
                 decoded = protocol.decode(line)
                 if decoded is None:
                     continue
-                if decoded.get("t") in ("pong", "hello"):
-                    recognized = True
+                if recognized:
+                    pending.append(decoded)
+                    continue
                 # Eventos de tecla que chegam ANTES da resposta ao ping
                 # ficaram represados no firmware enquanto ninguém lia a
                 # porta (o cabo estava ligado, o aplicativo não): são
                 # antigos e executá-los agora dispararia ações fantasmas.
-                if recognized:
+                kind = decoded.get("t")
+                if kind == "pong":
+                    recognized = True
+                    if hello is not None:
+                        pending.append(hello)
                     pending.append(decoded)
+                elif kind == "hello":
+                    hello = decoded
+                else:
+                    # Algo veio entre o hello e o pong: o hello era antigo.
+                    hello = None
             if recognized and not buffer:
                 # Resposta completa já em mãos: não há por que esperar o
                 # resto do timeout.

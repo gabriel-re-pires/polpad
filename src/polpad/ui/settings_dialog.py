@@ -91,6 +91,8 @@ class SettingsPage(QWidget):
     reset_settings_requested = Signal()
     reset_profiles_requested = Signal()
     uninstall_requested = Signal()
+    # "Capturar do macropad": a janela desvia a próxima tecla para cá.
+    capture_started = Signal()
 
     def __init__(
         self,
@@ -325,15 +327,20 @@ class SettingsPage(QWidget):
         self.capturing_mode_key = True
         self._capture_button.setText("Pressione uma tecla no macropad…")
         self._capture_button.setEnabled(False)
+        self.capture_started.emit()
 
     def key_captured(self, key: int) -> None:
         """Chamado pela janela principal quando o dispositivo envia uma tecla."""
         if not self.capturing_mode_key:
             return
-        self.capturing_mode_key = False
         index = self._mode_combo.findData(key)
         if index >= 0:
             self._mode_combo.setCurrentIndex(index)
+        self.cancel_capture()
+
+    def cancel_capture(self) -> None:
+        """Encerra a captura sem mudar a tecla escolhida."""
+        self.capturing_mode_key = False
         self._capture_button.setText("Capturar do macropad")
         self._capture_button.setEnabled(True)
 
