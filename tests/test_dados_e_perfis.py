@@ -5,6 +5,7 @@ Cada classe descreve, no comentário inicial, o defeito real que a motivou.
 
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 import unittest
@@ -13,6 +14,8 @@ from unittest import mock
 
 from polpad.core import secrets
 from polpad.core.store import Store
+
+from .apoio import CofreFalso
 
 
 class KeyringFalso:
@@ -99,6 +102,49 @@ class CofreQueFalhaTest(unittest.TestCase):
 
         self.assertEqual(self.keyring.dados.get("ha_token"), "TOKEN-HA")
         self.assertEqual(reaberto.settings.ha_token, "TOKEN-HA")
+
+
+CONFIG_SIMPLES = {
+    "settings": {},
+    "active_profile_id": "p1",
+    "profiles": [{"id": "p1", "name": "Meu perfil", "bindings": {}}],
+}
+
+
+class CodificacaoDaConfigTest(unittest.TestCase):
+    """Um ``config.json`` salvo pelo Bloco de Notas ganha BOM e era tratado
+    como corrompido: os perfis sumiam. Fora de UTF-8 (Latin-1 com "ç") o
+    ``UnicodeDecodeError`` escapava e o Polpad nem abria.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def _carregar(self, bruto: bytes) -> Store:
+        (self.dir / "config.json").write_bytes(bruto)
+        store = Store(data_dir=self.dir, vault=CofreFalso())
+        store.load()
+        return store
+
+    def test_config_com_bom_mantem_os_perfis(self):
+        store = self._carregar(b"\xef\xbb\xbf" + json.dumps(CONFIG_SIMPLES).encode())
+
+        self.assertEqual([p.name for p in store.profiles], ["Meu perfil"])
+        self.assertFalse((self.dir / "config.json.bak").exists())
+
+    def test_config_em_latin1_nao_impede_de_abrir(self):
+        cfg = {**CONFIG_SIMPLES, "profiles": [{"id": "p1", "name": "Ação"}]}
+        bruto = json.dumps(cfg, ensure_ascii=False).encode("latin-1")
+
+        store = self._carregar(bruto)
+
+        self.assertGreaterEqual(len(store.profiles), 1)
+        self.assertTrue((self.dir / "config.json.bak").exists())
+        self.assertEqual((self.dir / "config.json.bak").read_bytes(), bruto)
 
 
 if __name__ == "__main__":

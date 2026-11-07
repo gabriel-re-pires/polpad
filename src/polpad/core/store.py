@@ -90,8 +90,10 @@ class Store:
             self._create_default()
             return
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            # utf-8-sig: editores como o Bloco de Notas gravam com BOM.
+            # ValueError cobre JSON inválido e texto fora de UTF-8.
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (ValueError, OSError) as exc:
             log.warning("configuração ilegível (%s); recomeçando do padrão", exc)
             self._backup(path)
             self._create_default()
