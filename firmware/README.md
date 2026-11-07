@@ -37,19 +37,23 @@ Layout físico e índice das teclas (o mesmo da grade do software):
 | linha 2 | 8     | 9      | 10    | 11    | 12    |
 | linha 3 | 13    | 14     | 15    | 16    | 17    |
 
-Pinagem padrão (**a confirmar contra o PCB**):
+Pinagem conferida no PCB (como foi levantada:
+[docs/PINAGEM.md](../docs/PINAGEM.md)):
 
 | Função | GPIOs |
 |---|---|
-| Linhas (saída LOW na varredura) | 0, 1, 3, 10 |
-| Colunas (INPUT_PULLUP) | 4, 5, 6, 7, 21 |
+| Linhas (saída LOW na varredura), de cima para baixo | 10, 7, 6, 5 |
+| Colunas (INPUT_PULLUP), da esquerda para a direita | 0, 1, 2, 3, 4 |
 | OLED SDA / SCL | 8 / 9 |
-| Livres | 2, 20 |
+| Livres | 20, 21 |
 
-GPIO 2, 8 e 9 são pinos de *strapping*. Eles não são usados como linhas
-da matriz; a justificativa está nos comentários de `config.h`. Na
-SuperMini, o GPIO8 também tem o LED azul onboard, que pode piscar junto
-com o tráfego do I2C. Isso é normal.
+Os diodos ficam com o cátodo voltado para a linha (`DIODE_COL2ROW = true`).
+
+GPIO 2, 8 e 9 são pinos de *strapping*. Nenhum deles é linha da matriz:
+o GPIO2 é coluna e fica em HIGH por pull-up em repouso, e o GPIO8/9 ficam
+com o I2C, que também repousa em HIGH. A justificativa está nos
+comentários de `config.h`. Na SuperMini, o GPIO8 também tem o LED azul
+onboard, que pode piscar junto com o tráfego do I2C. Isso é normal.
 
 ## O que ajustar antes de gravar
 
