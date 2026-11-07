@@ -166,6 +166,14 @@ _QT_SPECIAL: dict[int, str] = {
 }
 _QT_SPECIAL.update({0x01000030 + i: f"f{i + 1}" for i in range(20)})  # Key_F1..F20
 
+# Teclas do ABNT2 que não são letra nem número: o código do Qt não depende
+# dos modificadores, e o nome é o caractere que ``resolve`` aceita.
+_QT_CHARS: dict[int, str] = {
+    0xC7: "ç",          # Qt.Key_Ccedilla
+    0x01001251: "´",    # Qt.Key_Dead_Acute
+    0x01001253: "~",    # Qt.Key_Dead_Tilde
+}
+
 _QT_MODIFIERS = (
     (0x04000000, "ctrl"),   # Qt.ControlModifier
     (0x08000000, "alt"),    # Qt.AltModifier
@@ -272,6 +280,8 @@ def names_from_event(
         names.append(main)
     elif key in _QT_SPECIAL:
         names.append(_QT_SPECIAL[key])
+    elif key in _QT_CHARS:
+        names.append(_QT_CHARS[key])
     elif 0x20 < key < 0x7F:
         names.append(chr(key).lower())
     else:

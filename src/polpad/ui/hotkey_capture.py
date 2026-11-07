@@ -10,6 +10,8 @@ campo mostra ``Ctrl`` ``+`` ``C`` como teclas desenhadas. Detalhes:
 * Esc sozinho cancela a gravação e mantém o atalho anterior;
 * letras e números vêm do código físico da tecla, então Shift+1 é
   gravado como ``Shift + 1`` (e não ``!``), em qualquer layout;
+* Ç, ´ e ~ do ABNT2 também são gravados; tecla sem nome conhecido mostra
+  um aviso no campo em vez de ser ignorada calada;
 * teclas que não existem em teclados comuns (F13–F20) ou que o sistema
   intercepta ficam no menu "Mais teclas".
 
@@ -40,6 +42,7 @@ class _CaptureField(QWidget):
         self._listening = False
         self._held: list[str] = []      # modificadores pressionados agora
         self._peak: list[str] = []      # maior conjunto pressionado na gravação
+        self._warning = ""              # tecla não reconhecida na gravação
         self._hover = False
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.PointingHandCursor)
@@ -51,6 +54,10 @@ class _CaptureField(QWidget):
     def keys(self) -> list[str]:
         return list(self._keys)
 
+    def warning(self) -> str:
+        """Aviso da última tecla não reconhecida ("" se não houver)."""
+        return self._warning
+
     def set_keys(self, names: list[str]) -> None:
         self._keys = [n.strip().lower() for n in names if n.strip()]
         self.setAccessibleDescription(keys.pretty(self._keys) or "vazio")
@@ -60,6 +67,7 @@ class _CaptureField(QWidget):
         self._listening = True
         self._held = []
         self._peak = []
+        self._warning = ""
         self.setFocus(Qt.MouseFocusReason)
         self.update()
 
@@ -67,6 +75,7 @@ class _CaptureField(QWidget):
         self._listening = False
         self._held = []
         self._peak = []
+        self._warning = ""
         self.update()
 
     # ------------------------------------------------------------- eventos
@@ -127,6 +136,10 @@ class _CaptureField(QWidget):
         )
         if names:
             self._commit(names)
+            return
+        # Tecla sem nome conhecido: avisa em vez de ignorar calado.
+        self._warning = "Tecla não reconhecida. Tente outra ou use Mais teclas."
+        self.update()
 
     def _on_release(self, e) -> None:
         if e.isAutoRepeat():
@@ -169,6 +182,13 @@ class _CaptureField(QWidget):
         if self._listening:
             if self._held:
                 x = self._draw_combo(p, self._held, x, trailing=True)
+            elif self._warning:
+                p.setPen(QColor(style.WARNING))
+                p.drawText(
+                    r.adjusted(12, 0, -12, 0),
+                    Qt.AlignVCenter | Qt.AlignLeft,
+                    self._warning,
+                )
             else:
                 p.setPen(QColor(style.ACCENT_HOVER))
                 p.drawText(
