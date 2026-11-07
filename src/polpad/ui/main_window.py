@@ -976,6 +976,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ refresh
 
     def _refresh_all(self) -> None:
+        controller = self._core.controller
+        # Renomear ou excluir o perfil ativo muda o que o aparelho deve
+        # mostrar. Quadros iguais ao último não são reenviados, e o ícone de
+        # uma troca de perfil em andamento não é cortado (o fim dele já
+        # envia o quadro atualizado).
+        if not controller.splashing:
+            controller.push_display()
         self._profile_panel.refresh()
         self._refresh_stage()
         self._refresh_preview()
