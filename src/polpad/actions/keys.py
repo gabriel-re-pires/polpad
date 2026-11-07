@@ -89,8 +89,39 @@ def resolve(name: str) -> Key | KeyCode:
     if name in _SPECIAL:
         return _SPECIAL[name]
     if len(name) == 1:
+        # No Windows a tecla vai pelo código virtual: dada como caractere,
+        # com Shift pressionado o pynput a troca pela maiúscula e manda um
+        # pacote Unicode sem código de tecla (Ctrl+Shift+P não chega como
+        # atalho). No Linux fica como estava.
+        if sys.platform == "win32":
+            vk = _char_vk(name)
+            if vk is not None:
+                return KeyCode.from_vk(vk)
         return KeyCode.from_char(name)
     raise ValueError(f"tecla desconhecida: {name!r}")
+
+
+def _vk_key_scan(char: str) -> int:
+    """``VkKeyScanW``: byte baixo = código virtual, alto = modificadores."""
+    if sys.platform != "win32":
+        return -1
+    import ctypes
+
+    return int(ctypes.windll.user32.VkKeyScanW(ctypes.c_wchar(char)))
+
+
+def _char_vk(char: str) -> int | None:
+    """Código virtual da tecla que digita ``char`` sem modificadores.
+
+    ``None`` se o layout não tiver essa tecla ou se ela só sair com Shift
+    ou AltGr (ex.: "!"): aí o caractere segue como antes.
+    """
+    if "a" <= char <= "z" or "0" <= char <= "9":
+        return ord(char.upper())
+    scan = _vk_key_scan(char) & 0xFFFF
+    if scan == 0xFFFF or scan & 0xFF00:
+        return None
+    return scan & 0xFF
 
 
 def is_valid(name: str) -> bool:
