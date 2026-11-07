@@ -85,14 +85,33 @@ def send(
     client = _get_client(host, port, password)
     try:
         client.send(request, data or None)
-    except Exception:
-        # Conexão pode ter caído (OBS reiniciado): tenta uma única vez de novo.
+    except Exception as exc:
+        if not _connection_lost(exc):
+            # Timeout ou recusa: o pedido já chegou ao OBS e reenviá-lo
+            # o executaria duas vezes (a gravação liga e desliga).
+            raise ActionError(f"OBS recusou {request}: {exc}") from exc
+        # Conexão caiu (OBS reiniciado): tenta uma única vez de novo.
         _reset_client()
         client = _get_client(host, port, password)
         try:
             client.send(request, data or None)
         except Exception as exc:
             raise ActionError(f"OBS recusou {request}: {exc}") from exc
+
+
+def _connection_lost(exc: Exception) -> bool:
+    """O pedido falhou porque a conexão já tinha caído (dá para reenviar)?"""
+    import json
+
+    from websocket import WebSocketConnectionClosedException
+
+    if isinstance(exc, TimeoutError):  # é OSError, mas o pedido pode ter saído
+        return False
+    # JSONDecodeError: o OBS fechou a conexão ao sair e o recv devolve o
+    # quadro de fechamento como texto vazio.
+    return isinstance(
+        exc, (OSError, WebSocketConnectionClosedException, json.JSONDecodeError)
+    )
 
 
 def _build_request(operation: str, params: dict[str, Any]) -> tuple[str, dict[str, Any]]:

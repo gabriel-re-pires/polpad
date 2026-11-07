@@ -57,5 +57,80 @@ class SenhaNoLogTest(unittest.TestCase):
         self.assertNotIn("X-segredo", texto)
 
 
+class ClienteFalso:
+    """Cliente obs-websocket que registra os pedidos que "chegaram ao OBS"
+    e depois lança o erro configurado (nas primeiras ``falhas`` vezes)."""
+
+    def __init__(self, recebidos, erro, falhas=1):
+        self.recebidos = recebidos
+        self.erro = erro
+        self.falhas = falhas
+
+    def send(self, request, data=None):
+        self.recebidos.append(request)
+        if len(self.recebidos) <= self.falhas:
+            raise self.erro
+
+    def disconnect(self):
+        pass
+
+
+class ReenvioTest(unittest.TestCase):
+    """Só vale reenviar quando a conexão caiu antes de o pedido chegar. Se
+    o OBS demorou a responder ou recusou o pedido, ele já o recebeu: um
+    reenvio liga e desliga a gravação."""
+
+    def setUp(self):
+        obs._reset_client()
+        self.addCleanup(obs._reset_client)
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def _enviar(self, erro):
+        recebidos = []
+        cliente = ClienteFalso(recebidos, erro)
+        with mock.patch.object(obs, "_connect", return_value=cliente):
+            try:
+                obs.send("localhost", 4455, "", "toggle_record", {})
+            except obs.ActionError as exc:
+                return recebidos, exc
+        return recebidos, None
+
+    def test_timeout_nao_reenvia(self):
+        from obsws_python.error import OBSSDKTimeoutError
+
+        recebidos, erro = self._enviar(OBSSDKTimeoutError("timeout"))
+        self.assertEqual(recebidos.count("ToggleRecord"), 1)
+        self.assertIsInstance(erro, obs.ActionError)
+
+    def test_pedido_recusado_nao_reenvia(self):
+        from obsws_python.error import OBSSDKRequestError
+
+        recebidos, erro = self._enviar(OBSSDKRequestError("ToggleRecord", 500, None))
+        self.assertEqual(recebidos.count("ToggleRecord"), 1)
+        self.assertIsInstance(erro, obs.ActionError)
+
+    def test_conexao_caida_reenvia_uma_vez(self):
+        recebidos, erro = self._enviar(ConnectionResetError("caiu"))
+        self.assertEqual(recebidos.count("ToggleRecord"), 2)
+        self.assertIsNone(erro)
+
+    def test_conexao_fechada_pelo_websocket_reenvia(self):
+        from websocket import WebSocketConnectionClosedException
+
+        recebidos, erro = self._enviar(WebSocketConnectionClosedException("fechada"))
+        self.assertEqual(recebidos.count("ToggleRecord"), 2)
+        self.assertIsNone(erro)
+
+    def test_obs_fechado_normalmente_reenvia(self):
+        # OBS fechado e reaberto: o quadro de fechamento faz o recv devolver
+        # "" e o obsws_python falha ao ler o JSON da resposta.
+        import json
+
+        recebidos, erro = self._enviar(json.JSONDecodeError("vazio", "", 0))
+        self.assertEqual(recebidos.count("ToggleRecord"), 2)
+        self.assertIsNone(erro)
+
+
 if __name__ == "__main__":
     unittest.main()
