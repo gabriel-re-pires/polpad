@@ -100,6 +100,24 @@ class PaginaGravandoTest(unittest.TestCase):
         self.pagina._on_success()
         self.assertIn("(versão 2.1.0)", self._mensagem_de_sucesso())
 
+    def test_controles_desabilitados_durante_a_gravacao(self):
+        self._escolher_arquivo_local()
+        self.pagina._start()
+        self.assertTrue(JobFalso.criados[0].isRunning())
+        self.assertFalse(self.pagina.back_button.isEnabled())
+        self.assertFalse(self.pagina._port_combo.isEnabled())
+        self.assertFalse(self.pagina._release_radio.isEnabled())
+        self.assertFalse(self.pagina._file_radio.isEnabled())
+
+    def test_controles_voltam_ao_terminar(self):
+        self._escolher_arquivo_local()
+        self.pagina._start()
+        JobFalso.criados[0]._rodando = False
+        self.pagina._on_finished()
+        self.assertTrue(self.pagina.back_button.isEnabled())
+        self.assertTrue(self.pagina._port_combo.isEnabled())
+        self.assertTrue(self.pagina._file_radio.isEnabled())
+
 
 if __name__ == "__main__":
     unittest.main()

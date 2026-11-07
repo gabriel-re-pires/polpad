@@ -412,8 +412,10 @@ class FlashPage(Page):
 
         self._flash_button.setVisible(False)
         self._cancel_button.setVisible(True)
-        self._set_running(True)
+        # Primeiro o job: ``_refresh_enabled`` olha ``isRunning()`` para
+        # travar Voltar, porta e origens.
         job.start()
+        self._set_running(True)
 
     def _confirm(self, port: str) -> bool:
         answer = QMessageBox.question(
