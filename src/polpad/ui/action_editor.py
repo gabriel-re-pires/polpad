@@ -51,6 +51,9 @@ _MACRO_EXCLUDED = {"macro", "mode_switch"}
 
 
 class ActionEditorDialog(QDialog):
+    # Espera do botão "Testar", para o usuário levar o foco à janela alvo.
+    _TEST_DELAY_MS = 3000
+
     def __init__(
         self,
         parent: QWidget | None,
@@ -538,7 +541,13 @@ class ActionEditorDialog(QDialog):
             self._status.setText("Ação enviada.")
             self._test_button.setEnabled(True)
 
-        QTimer.singleShot(3000, fire)
+        # Timer filho do editor: se o usuário sair antes do disparo, ele é
+        # apagado junto e a ação não roda.
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(fire)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(self._TEST_DELAY_MS)
 
 
 def _auto_label(action: Action) -> str:
