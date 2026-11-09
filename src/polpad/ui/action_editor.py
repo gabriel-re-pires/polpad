@@ -1,9 +1,4 @@
-"""Diálogo de configuração da ação de uma tecla.
-
-Apresenta um formulário específico para cada tipo de ação registrado.
-O botão "Testar" executa a ação após 3 segundos, dando tempo de levar
-o foco à janela alvo (ex.: o terminal do VS Code).
-"""
+"""Diálogo de configuração da ação de uma tecla, com um formulário por tipo."""
 
 from __future__ import annotations
 
@@ -89,8 +84,8 @@ class ActionEditorDialog(QDialog):
         self._label_edit = QLineEdit()
         self._label_edit.setPlaceholderText("Nome curto exibido na tecla (opcional)")
         form.addRow("Rótulo:", self._label_edit)
-        # A abreviação ia para o mapa de teclas do display, que saiu do
-        # aparelho. Ela não é mais editável, mas é preservada ao salvar.
+        # A abreviação (do antigo mapa de teclas do display) não é mais
+        # editável, mas é preservada ao salvar.
         self._kept_short = action.short if action is not None else ""
         layout.addLayout(form)
 
@@ -123,8 +118,7 @@ class ActionEditorDialog(QDialog):
         ok.setText("Salvar")
         ok.setObjectName("primary")
         cancel = buttons.addButton(QDialogButtonBox.Cancel)
-        # Dentro da página do editor (ActionEditorPage), Salvar e Voltar
-        # ficam no cabeçalho da página; estes dois são escondidos lá.
+        # A ActionEditorPage esconde estes: lá Salvar e Voltar ficam no cabeçalho.
         self.dialog_buttons = (ok, cancel)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
@@ -141,8 +135,6 @@ class ActionEditorDialog(QDialog):
 
         if action is not None:
             self._load(action)
-
-    # ------------------------------------------------------------- páginas
 
     def _build_page(self, name: str) -> QWidget:
         page = QWidget()
@@ -278,8 +270,6 @@ class ActionEditorDialog(QDialog):
             keys.pretty(names) or "Nome curto exibido na tecla (opcional)"
         )
 
-    # --------------------------------------------------------------- macro
-
     def _macro_add(self, page: QWidget) -> None:
         dialog = ActionEditorDialog(self, -1, None, runner=None, allow_macro=False)
         if dialog.exec() == QDialog.Accepted and dialog.result_action:
@@ -318,8 +308,6 @@ class ActionEditorDialog(QDialog):
             title = action.label or _auto_label(action)
             QListWidgetItem(f"{action.type}: {title}", page.steps_list)
 
-    # ------------------------------------------------------------ diálogos
-
     def _pick_file(self, edit: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Escolher arquivo ou programa")
         if path:
@@ -329,8 +317,6 @@ class ActionEditorDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, "Escolher pasta de trabalho")
         if path:
             edit.setText(path)
-
-    # ------------------------------------------------------------- eventos
 
     def _on_type_changed(self) -> None:
         name = self._type_combo.currentData()
@@ -534,15 +520,12 @@ class ActionEditorDialog(QDialog):
         )
         self._test_button.setEnabled(False)
 
-        # Captura o runner agora: o disparo acontece 3 s depois, fora deste
-        # escopo.
         def fire() -> None:
             runner.submit(action)
             self._status.setText("Ação enviada.")
             self._test_button.setEnabled(True)
 
-        # Timer filho do editor: se o usuário sair antes do disparo, ele é
-        # apagado junto e a ação não roda.
+        # Timer filho do editor: se o usuário sair antes, a ação não roda.
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.timeout.connect(fire)

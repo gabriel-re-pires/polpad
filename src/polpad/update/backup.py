@@ -1,9 +1,7 @@
-"""Cópias dos perfis feitas antes de qualquer troca de versão.
+"""Cópias dos perfis (``config.json`` e ``icons/``) antes de trocar de versão.
 
-Copia só o que é do usuário — ``config.json`` e ``icons/`` —, não logs,
-cache de firmware, downloads nem os próprios backups. Ficam as ``KEEP``
-cópias mais recentes e, além delas, sempre a última feita antes de uma
-atualização: as da Zona de risco não podem empurrá-la para fora.
+Ficam as ``KEEP`` mais recentes e, além delas, sempre a última de antes de uma
+atualização, que as da Zona de risco não podem empurrar para fora.
 """
 
 from __future__ import annotations

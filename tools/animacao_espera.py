@@ -1,19 +1,12 @@
 """Gera a animação da tela de espera do firmware (o polvo girando os tentáculos).
 
-Enquanto o software do PC não aparece, o display mostra o polvo do logo
-parado, com os 8 tentáculos girando em volta do corpo, e embaixo
-"Aguardando conexão" com os três pontinhos animados.
-
-Os quadros saem do próprio logo (``src/polpad/ui/assets/polvo-roxo-256.png``):
-o logo inteiro é girado e o corpo (com os olhos) é colado de volta sem
-giro, por cima. Como os 8 tentáculos são iguais e ficam a cada 45°, girar
-45° volta à mesma imagem: bastam ``QUADROS`` quadros cobrindo 45° para a
-volta ficar contínua.
+Gira o logo e cola o corpo parado por cima. Os 8 tentáculos se repetem a cada
+45°, então ``QUADROS`` quadros cobrindo 45° fecham a volta sem pulo.
 
     .venv\\Scripts\\python tools\\animacao_espera.py [--gif prévia.gif]
 
-Grava ``firmware/macropad_firmware/espera_anim.h``. Com ``--gif``, grava
-também uma prévia da tela inteira (texto e pontinhos incluídos), ampliada.
+Grava ``firmware/macropad_firmware/espera_anim.h``; ``--gif`` grava também uma
+prévia ampliada da tela inteira.
 """
 
 from __future__ import annotations
@@ -34,7 +27,7 @@ SAIDA = RAIZ / "firmware" / "macropad_firmware" / "espera_anim.h"
 
 LADO = 48  # px do polvo no display
 QUADROS = 12  # quadros para girar 45°
-QUADRO_MS = 100  # tempo de cada quadro (o firmware usa o mesmo)
+QUADRO_MS = 100
 CENTRO = 128  # centro do corpo no logo de 256 px
 RAIO_CORPO = 69  # raio do corpo no logo de 256 px (com folga da borda)
 LIMIAR = 110  # opacidade (0-255) a partir da qual o pixel acende
@@ -43,7 +36,7 @@ LIMIAR = 110  # opacidade (0-255) a partir da qual o pixel acende
 TEXTO = "Aguardando conexao"
 TIL_EM = TEXTO.index("conexao") + 5  # o "a" de "conexao"
 TEXTO_Y = 55
-PONTOS_MS = 400  # cada passo dos pontinhos ("", ".", "..", "...")
+PONTOS_MS = 400  # cada passo de "", ".", "..", "..."
 
 
 def quadros() -> list[Image.Image]:
@@ -132,7 +125,7 @@ def cabecalho(lista: list[Image.Image]) -> str:
 
 
 def tela(polvo: Image.Image, pontos: int) -> Image.Image:
-    """A tela inteira como o firmware desenha (para a prévia)."""
+    """A tela inteira como o firmware desenha."""
     frame = oled_render.new_frame()
     frame.paste(polvo, ((oled_render.SCREEN_W - LADO) // 2, 0))
     largura = oled_render.text_width(TEXTO + "...")
@@ -145,7 +138,7 @@ def tela(polvo: Image.Image, pontos: int) -> Image.Image:
     return frame
 
 
-# Pixels do til sobre o "a" (relativos ao canto da célula do caractere).
+# Til sobre o "a", relativo ao canto da célula do caractere.
 TIL = ((1, -1), (2, -2), (3, -1), (4, -2))
 
 

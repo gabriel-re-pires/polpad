@@ -78,8 +78,7 @@ class LinhaDeComandoTest(unittest.TestCase):
     def test_linha_de_comando_windows(self):
         log = Path("C:/Users/João Silva/AppData/Roaming/Polpad/updates/instalacao.log")
         argv = installer.windows_command(Path("C:/x/Polpad-Setup.exe"), log, True)
-        # /SILENT: sem as páginas do assistente, mas com a janela de
-        # progresso, para ninguém achar que o Polpad sumiu e abri-lo de novo.
+        # /SILENT mostra o progresso, para ninguém achar que o Polpad sumiu.
         self.assertEqual(
             argv[1:5],
             ["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
@@ -188,10 +187,6 @@ class InstanciaUnicaTest(unittest.TestCase):
         del app
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LancamentoTest(unittest.TestCase):
     def test_processo_novo_nao_herda_o_ambiente_do_pyinstaller(self):
         """O Polpad reaberto por si mesmo precisa desempacotar a própria
@@ -201,3 +196,7 @@ class LancamentoTest(unittest.TestCase):
         env = popen.call_args.kwargs["env"]
         self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
         self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+
+
+if __name__ == "__main__":
+    unittest.main()

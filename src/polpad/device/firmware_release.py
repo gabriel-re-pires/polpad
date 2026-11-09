@@ -1,14 +1,7 @@
 """Descoberta e download do firmware publicado no GitHub.
 
-O aplicativo procura, entre os releases publicados, o mais recente que tem
-um binário de firmware anexado, e o baixa para um cache em
-``%APPDATA%/Polpad/firmware``. Assim o firmware pode ser atualizado sem
-republicar o executável, publicar uma versão só do aplicativo não quebra a
-gravação, e o usuário que só quer usar o macropad não precisa de Arduino
-IDE nem de código-fonte.
-
-O módulo é isolado do esptool e do Qt: recebe/devolve dados simples e é
-testável com um cliente HTTP falso.
+Usa o release mais recente que tenha um ``firmware*.bin`` anexado, com cache
+em ``%APPDATA%/Polpad/firmware``; assim o firmware sai sem republicar o app.
 """
 
 from __future__ import annotations
@@ -38,7 +31,7 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-#: Anexos aceitos como firmware. ``firmware-1.2.0.bin``, ``firmware.bin``…
+#: ``firmware-1.2.0.bin``, ``firmware.bin``…
 ASSET_PATTERN = re.compile(r"^firmware[\w.\-]*\.bin$", re.IGNORECASE)
 
 
@@ -57,8 +50,7 @@ class FirmwareRelease:
 
     @property
     def cached_path(self) -> Path:
-        # O nome inclui a tag: releases diferentes nunca se sobrescrevem no
-        # cache, e um download interrompido não passa por completo.
+        # A tag no nome impede que releases diferentes se sobrescrevam no cache.
         return cache_dir() / f"{self.tag}-{self.asset_name}"
 
 
@@ -66,14 +58,8 @@ def cache_dir() -> Path:
     return default_data_dir() / "firmware"
 
 
-# ------------------------------------------------------------------ consulta
-
-
 def latest_release(session: Any | None = None) -> FirmwareRelease:
-    """Firmware do release publicado mais recente que tenha um.
-
-    ``session`` existe para os testes; em produção usa-se o ``requests``.
-    """
+    """Firmware do release publicado mais recente que tenha um."""
     try:
         releases = github.published_releases(session)
     except github.GitHubError as exc:
@@ -87,9 +73,7 @@ def latest_release(session: Any | None = None) -> FirmwareRelease:
         asset_name = str(asset.get("name"))
         return FirmwareRelease(
             tag=tag or "release",
-            # A versão é a do FIRMWARE, lida do nome do anexo: as tags do
-            # repositório versionam o aplicativo, que tem numeração própria.
-            # Sem número no nome, a tag é o melhor palpite disponível.
+            # As tags versionam o aplicativo; a do firmware vem do nome do anexo.
             version=version_from_asset(asset_name) or normalize_version(tag),
             asset_name=asset_name,
             url=str(asset.get("browser_download_url")),
@@ -110,9 +94,6 @@ def _pick_asset(assets: Iterable[Any]) -> dict[str, Any] | None:
         if ASSET_PATTERN.match(name) and asset.get("browser_download_url"):
             return asset
     return None
-
-
-# ------------------------------------------------------------------ download
 
 
 def download(
@@ -144,20 +125,10 @@ def _is_cached(path: Path, expected_size: int) -> bool:
         return False
 
 
-# ------------------------------------------------------------------- versões
-
-
 def version_from_asset(asset_name: str) -> str:
-    """Extrai a versão do firmware do nome do anexo (``firmware-2.0.0.bin``).
+    """Versão no nome do anexo (``firmware-2.0.0.bin``), ou "" se não houver.
 
-    É daqui que sai a versão comparada com a que o dispositivo anuncia no
-    ``hello``, porque as tags do repositório versionam o *aplicativo* e
-    não o firmware.
-
-    Exige pelo menos um ponto (``2.0``), senão nomes como
-    ``firmware-esp32c3.bin`` virariam a "versão 32". Devolve string vazia
-    quando o nome não traz versão alguma — cabe a quem chama recorrer à
-    tag.
+    Exige um ponto, senão ``firmware-esp32c3.bin`` viraria a "versão 32".
     """
     match = re.search(r"\d+(?:\.\d+)+", asset_name or "")
     return match.group(0) if match else ""

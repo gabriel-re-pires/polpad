@@ -1,33 +1,16 @@
-"""Conversão de imagens para o formato do display OLED (SSD1306, 1 bpp).
+"""Conversão de imagens para o OLED SSD1306 (128x64, 1 bpp).
 
-O display de 0,96" tem 128x64 pixels monocromáticos: só existe "aceso" e
-"apagado". Qualquer imagem escolhida pelo usuário precisa ser reduzida e
-convertida para 1 bit por pixel, e o resultado depende muito de COMO essa
-conversão decide o que acende.
-
-A versão anterior achatava a transparência sobre fundo preto e aplicava
-difusão de erro sobre a luminância. Com isso os casos mais comuns de
-ícone sumiam do display:
-
-* pictograma escuro em fundo transparente (o formato típico de ícones
-  baixados da internet): o desenho preto sobre o fundo preto ficava
-  inteiramente apagado — tela vazia;
-* logo em fundo branco (JPG, print de tela): o fundo acendia o display
-  inteiro e o desenho virava um ruído de pontos.
-
-Agora:
-
-1. o **canal alfa define a forma** — o que é opaco é desenho, o que é
-   transparente é fundo, independentemente da cor;
-2. sem transparência, o **fundo é deduzido da borda** da imagem; fundo
-   claro é invertido, para o fundo ficar apagado como no resto da tela;
+1. o canal alfa define a forma, independentemente da cor;
+2. sem alfa, o fundo é deduzido da borda; fundo claro é invertido;
 3. desenho predominantemente escuro é invertido, para acender;
-4. as margens vazias são recortadas, para o desenho ocupar a área toda;
-5. pictogramas usam **limiar** (bordas nítidas); só fotografias usam
-   difusão de erro (Floyd–Steinberg), onde ela ajuda.
+4. as margens vazias são recortadas;
+5. pictogramas usam limiar; só fotografias usam Floyd–Steinberg.
 
-Formato de empacotamento ("xbm1"): varredura por linhas, 8 pixels por
-byte, bit mais significativo = pixel mais à esquerda, 1 = pixel aceso.
+Achatar o alfa sobre preto e difundir sempre apagava pictogramas escuros em
+fundo transparente e virava ruído em logos de fundo branco.
+
+Formato "xbm1": por linhas, 8 pixels por byte, MSB = pixel mais à esquerda,
+1 = aceso.
 """
 
 from __future__ import annotations
@@ -44,8 +27,7 @@ from .models import SCREEN_H, SCREEN_W
 _ALPHA_MIN = 128
 # Uma imagem "tem transparência" se ao menos esta fração for transparente.
 _ALPHA_FRACTION = 0.02
-# Acima disto de cores distintas (após reduzir), a imagem é tratada como
-# fotografia e convertida com difusão de erro.
+# Acima disto de cores distintas (após reduzir), a imagem é fotografia.
 _PHOTO_COLORS = 48
 
 
@@ -79,28 +61,21 @@ def _border_mean(gray: Image.Image) -> float:
 
 
 def _intensity(img: Image.Image) -> tuple[Image.Image, bool]:
-    """Mapa de intensidade (0 = apagado, 255 = aceso) e se é uma fotografia.
-
-    Concentra as decisões descritas no cabeçalho do módulo.
-    """
+    """Mapa de intensidade (0 = apagado, 255 = aceso) e se é uma fotografia."""
     alpha = img.getchannel("A")
     gray = img.convert("RGB").convert("L")
 
     if _has_alpha(alpha):
         shape = alpha.point(lambda a: 255 if a >= _ALPHA_MIN else 0)
-        # Desenho escuro sobre transparente: inverte para ele acender. Um
-        # pictograma preto liso vira um pictograma branco liso; um logo
-        # colorido mantém os detalhes internos (o "furo" escuro continua
-        # apagado).
+        # Desenho escuro sobre transparente: inverte para ele acender (um logo
+        # colorido mantém os "furos" escuros apagados).
         if _mean(gray, shape) < 128:
             gray = ImageOps.invert(gray)
-        # Fora da forma, tudo apagado.
         gray = ImageChops.multiply(gray, shape)
         return gray, False
 
     background = _border_mean(gray)
-    # Imagem praticamente uniforme (um quadrado de uma cor só): não há
-    # fundo a separar; inverter apagaria tudo.
+    # Imagem praticamente uniforme: inverter apagaria tudo.
     lo, hi = cast(tuple[int, int], gray.getextrema())
     uniforme = hi - lo < 16
     if background >= 128 and not uniforme:
@@ -111,7 +86,7 @@ def _intensity(img: Image.Image) -> tuple[Image.Image, bool]:
 
 
 def _trim(gray: Image.Image) -> Image.Image:
-    """Recorta as margens apagadas, para o desenho ocupar a área disponível."""
+    """Recorta as margens apagadas."""
     box = gray.point(lambda v: 255 if v >= 64 else 0).getbbox()
     if box is None:
         return gray
@@ -119,11 +94,10 @@ def _trim(gray: Image.Image) -> Image.Image:
 
 
 def icon_bitmap(path: str | Path, width: int, height: int | None = None) -> Image.Image:
-    """Converte a imagem em um bitmap 1 bpp que cabe em ``width`` x ``height``.
+    """Bitmap 1 bpp centralizado em ``width`` x ``height``.
 
-    O desenho é ampliado ou reduzido mantendo a proporção (``thumbnail``
-    só reduziria, e um ícone 16x16 ficaria minúsculo) e centralizado em
-    um quadro do tamanho pedido, de fundo apagado.
+    Também amplia (``thumbnail`` só reduziria, e um ícone 16x16 ficaria
+    minúsculo).
     """
     height = width if height is None else height
     gray, photo = _intensity(_open_rgba(path))
@@ -132,8 +106,7 @@ def icon_bitmap(path: str | Path, width: int, height: int | None = None) -> Imag
     escala = min(width / gray.width, height / gray.height)
     novo = (max(1, round(gray.width * escala)), max(1, round(gray.height * escala)))
     if novo != gray.size:
-        # Ampliar pictogramas com LANCZOS borra as bordas antes do limiar;
-        # ampliações inteiras ficam nítidas com NEAREST.
+        # LANCZOS borraria as bordas do pictograma antes do limiar.
         filtro = (
             Image.Resampling.NEAREST
             if escala >= 2 and not photo
@@ -212,8 +185,6 @@ def lit_fraction(mono: Image.Image) -> float:
 def validar_imagem(path: str | Path) -> None:
     """Levanta exceção se o arquivo não servir como ícone.
 
-    Chamada ANTES de copiar a imagem para o diretório de dados, para o
-    erro aparecer no momento da escolha e não depois, silenciosamente,
-    com o display caindo para o nome do perfil.
+    Chamada antes de copiar a imagem, para o erro aparecer na escolha.
     """
     icon_bitmap(path, SCREEN_H)

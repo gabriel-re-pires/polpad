@@ -1,33 +1,12 @@
-// =========================================================================
-// Firmware do macropad ESP32-C3 — projeto Polpad  (versão 2.1.0)
+// Firmware do macropad Polpad (ESP32-C3).
 //
-// Arquitetura híbrida:
-//   * MODO ESTENDIDO (host presente): eventos de tecla vão pela USB serial
-//     (JSON Lines, ver docs/PROTOCOLO.md) e o software no PC executa as
-//     ações; o display mostra o ícone/nome do perfil enviado pelo host.
-//   * MODO AUTÔNOMO (sem host): o dispositivo atua como teclado Bluetooth
-//     LE (BLE HID) com os atalhos fixos definidos em config.h.
+// Com o host presente, as teclas vão pela USB serial (JSON Lines, ver
+// docs/PROTOCOLO.md) e o PC executa as ações. Sem host por HOST_TIMEOUT_MS,
+// vira teclado BLE com os atalhos de config.h (o C3 não tem USB HID). Os
+// eventos de tecla vão pela serial nos dois modos.
 //
-// O ESP32-C3 não tem USB HID nativo (a USB dele é um periférico fixo
-// Serial/JTAG), por isso o "teclado de verdade" do modo autônomo é BLE.
-//
-// O host envia "ping" a cada 3 s; a ausência de mensagens válidas por
-// HOST_TIMEOUT_MS caracteriza o modo autônomo. Os eventos de tecla são
-// SEMPRE enviados pela serial, nos dois modos.
-//
-// O modo autônomo é opcional: comente ENABLE_BLE em config.h para
-// compilar só com o modo estendido (ver firmware/README.md).
-//
-// Bibliotecas (Gerenciador de Bibliotecas do Arduino IDE):
-//   - Adafruit SSD1306 (+ Adafruit GFX, Adafruit BusIO)
-//   - ArduinoJson 7.x
-// E, apenas com ENABLE_BLE ligado:
-//   - NimBLE-Arduino 2.5.x  (o HID BLE é implementado aqui mesmo, com
-//     NimBLEHIDDevice — NÃO usa a biblioteca ESP32-BLE-Keyboard)
-//
-// Placa: "ESP32C3 Dev Module", USB CDC On Boot: "Enabled"
-// (FQBN esp32:esp32:esp32c3:CDCOnBoot=cdc). Ver firmware/README.md.
-// =========================================================================
+// Placa "ESP32C3 Dev Module", USB CDC On Boot ligado. Bibliotecas e
+// gravação: firmware/README.md.
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -37,7 +16,7 @@
 #include "config.h"
 #include "espera_anim.h"
 
-// Depois do config.h, que é quem define (ou não) ENABLE_BLE.
+// Depois do config.h, que define (ou não) ENABLE_BLE.
 #ifdef ENABLE_BLE
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
@@ -45,9 +24,7 @@
 
 constexpr char FW_VERSION[] = "2.1.0";
 
-// ------------------------------------------- verificações de config.h
-// Confere, em tempo de compilação, que KEY_INDEX mapeia exatamente as
-// teclas 0..KEY_COUNT-1, cada uma uma única vez.
+// KEY_INDEX precisa ter cada tecla 0..KEY_COUNT-1 exatamente uma vez.
 constexpr bool keyIndexIsValid() {
   for (int k = 0; k < KEY_COUNT; k++) {
     int found = 0;
@@ -65,25 +42,20 @@ static_assert(keyIndexIsValid(),
               "KEY_INDEX deve conter cada tecla 0..KEY_COUNT-1 exatamente uma vez");
 
 // =================================================================== display
-// clkDuring = clkAfter = 400 kHz: a Adafruit_SSD1306 troca o clock do I2C
-// antes/depois de cada transferência; com os dois iguais o barramento fica
-// sempre em 400 kHz (o padrão dela "devolveria" 100 kHz após cada envio).
+// clkDuring = clkAfter: senão a biblioteca volta o I2C a 100 kHz após cada
+// envio.
 Adafruit_SSD1306 display(OLED_W, OLED_H, &Wire, -1, OLED_I2C_HZ, OLED_I2C_HZ);
 bool displayOk = false;
 
-uint8_t imageBuffer[OLED_W * OLED_H / 8];  // 1024 bytes (1 bpp)
+uint8_t imageBuffer[OLED_W * OLED_H / 8];
 
 // ================================================================ BLE HID
 #ifdef ENABLE_BLE
-// IDs de relatório (precisam bater com o report map abaixo).
 constexpr uint8_t REPORT_ID_KEYBOARD = 1;
 constexpr uint8_t REPORT_ID_CONSUMER = 2;
 
-// Report map HID:
-//   ID 1 = teclado padrão: 1 byte de modificadores, 1 reservado, 6 teclas
-//          (+ relatório de saída de 1 byte para os LEDs Num/Caps/Scroll,
-//          que alguns sistemas esperam de um teclado);
-//   ID 2 = consumer control: um usage de 16 bits (teclas de mídia).
+// ID 1 = teclado padrão (com relatório de saída dos LEDs, que alguns
+// sistemas esperam); ID 2 = consumer control, um usage de 16 bits.
 static const uint8_t HID_REPORT_MAP[] = {
     // ---------------------------------------------------- teclado (ID 1)
     0x05, 0x01,        // Usage Page (Generic Desktop)
@@ -139,71 +111,61 @@ NimBLEHIDDevice *bleHid = nullptr;
 NimBLECharacteristic *bleKeyboardInput = nullptr;
 NimBLECharacteristic *bleConsumerInput = nullptr;
 
-// Alterado pelos callbacks da NimBLE (outra tarefa do FreeRTOS); a tela de
-// espera só observa (mostra o ícone do Bluetooth enquanto conectado).
+// Escrito pelos callbacks da NimBLE, em outra tarefa do FreeRTOS.
 volatile bool bleConnected = false;
 
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) override {
     bleConnected = true;
-    // Intervalo de conexão curto (7,5–15 ms) para baixa latência de tecla;
-    // latência 0; supervision timeout 4 s (unidade de 10 ms).
+    // Intervalo 7,5–15 ms para baixa latência; supervision timeout 4 s.
     server->updateConnParams(connInfo.getConnHandle(), 6, 12, 0, 400);
   }
   void onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInfo,
                     int reason) override {
     (void)connInfo;
     (void)reason;
-    // O anúncio é reiniciado automaticamente (advertiseOnDisconnect).
     bleConnected = server->getConnectedCount() > 0;
   }
 };
 #endif  // ENABLE_BLE
 
 // ================================================================ estado
-// Debounce por tempo de estabilidade.
-bool keyState[KEY_COUNT] = {false};       // estado debounced (true = pressionada)
-bool keyPending[KEY_COUNT] = {false};     // leitura diferente do estado?
-uint32_t keyPendingSince[KEY_COUNT] = {0};  // desde quando (ms)
+bool keyState[KEY_COUNT] = {false};
+bool keyPending[KEY_COUNT] = {false};  // leitura diferente do estado
+uint32_t keyPendingSince[KEY_COUNT] = {0};
 
-// Presença do host.
 uint32_t lastHostMessageAt = 0;
 bool hostPresent = false;
-bool hostScreenReceived = false;  // host já mandou text/img nesta sessão?
 
-// Tela de espera (host ausente): passo da animação desenhado por último.
-// -1 = redesenhar já.
+// Passo da animação de espera já desenhado; -1 força redesenho.
 int32_t waitingStepShown = -1;
 
 #ifdef ENABLE_BLE
-// Relatórios BLE atuais (para soltar só o tipo correspondente).
 uint8_t currentKeyboardReport[8] = {0};
 uint16_t currentConsumerUsage = 0;
 #endif
 
-// Linha de entrada da serial (a mensagem "img" chega a ~1,4 KB).
+// A mensagem "img" chega a ~1,4 KB.
 constexpr size_t LINE_BUFFER_SIZE = 2048;
 char lineBuffer[LINE_BUFFER_SIZE];
 size_t lineLength = 0;
-bool discardingLine = false;  // linha longa demais: descarta até o '\n'
+bool discardingLine = false;
 
 // ==================================================================== setup
 
 void setup() {
-  // O buffer de RX precisa ser configurado ANTES do begin(): uma mensagem
-  // "img" (~1,4 KB) chega de uma vez e o padrão do HWCDC é só 256 bytes.
+  // Antes do begin(): o "img" chega de uma vez e o padrão do HWCDC é 256 B.
   Serial.setRxBufferSize(4096);
   Serial.setTxBufferSize(1024);
-  Serial.begin(115200);  // no C3 é USB CDC: o baud rate é ignorado
-  // Escritas na serial nunca devem travar o loop por muito tempo (ex.: PC
-  // ligado à USB mas sem nenhum programa lendo a porta).
+  Serial.begin(115200);  // USB CDC: o baud rate é ignorado
+  // Não travar o loop quando ninguém lê a porta no PC.
   Serial.setTxTimeoutMs(5);
 
   setupMatrix();
 
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(OLED_I2C_HZ);
-  // periphBegin = false: o Wire já foi iniciado acima com os pinos certos.
+  // periphBegin = false: o Wire já foi iniciado com os pinos certos.
   displayOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR, true, false);
   if (displayOk) {
     display.setTextWrap(false);
@@ -228,12 +190,10 @@ void loop() {
 
 // ======================================================== matriz de teclas
 
-// Conforme a orientação dos diodos, um lado da matriz é "acionado" (levado
-// a LOW, um pino por vez) e o outro é "lido" (com pull-up).
+// O lado acionado fica em alta impedância e só o pino da vez vira OUTPUT
+// LOW, para nunca forçar HIGH contra o resto do circuito. O lado lido tem
+// pull-up.
 void setupMatrix() {
-  // Pinos acionados ficam em alta impedância (INPUT) quando inativos; só o
-  // pino da vez vira OUTPUT LOW. Assim nunca há dois pinos acionados ao
-  // mesmo tempo e nada é forçado em HIGH contra o resto do circuito.
   for (uint8_t r = 0; r < KEY_ROWS; r++) {
     pinMode(ROW_PINS[r], DIODE_COL2ROW ? INPUT : INPUT_PULLUP);
   }
@@ -242,11 +202,10 @@ void setupMatrix() {
   }
 }
 
-// Aplica o debounce por tempo de estabilidade a uma leitura crua.
 void debounceKey(int8_t index, bool pressed, uint32_t now) {
-  if (index < 0) return;  // posição vazia da matriz
+  if (index < 0) return;
   if (pressed == keyState[index]) {
-    keyPending[index] = false;  // voltou ao estado atual: era ruído/bounce
+    keyPending[index] = false;
     return;
   }
   if (!keyPending[index]) {
@@ -262,7 +221,6 @@ void debounceKey(int8_t index, bool pressed, uint32_t now) {
 void scanKeys() {
   uint32_t now = millis();
   if (DIODE_COL2ROW) {
-    // Linha em LOW, colunas lidas (LOW = tecla pressionada).
     for (uint8_t r = 0; r < KEY_ROWS; r++) {
       pinMode(ROW_PINS[r], OUTPUT);
       digitalWrite(ROW_PINS[r], LOW);
@@ -270,10 +228,9 @@ void scanKeys() {
       for (uint8_t c = 0; c < KEY_COLS; c++) {
         debounceKey(KEY_INDEX[r][c], digitalRead(COL_PINS[c]) == LOW, now);
       }
-      pinMode(ROW_PINS[r], INPUT);  // solta a linha antes da próxima
+      pinMode(ROW_PINS[r], INPUT);
     }
   } else {
-    // Coluna em LOW, linhas lidas (LOW = tecla pressionada).
     for (uint8_t c = 0; c < KEY_COLS; c++) {
       pinMode(COL_PINS[c], OUTPUT);
       digitalWrite(COL_PINS[c], LOW);
@@ -287,15 +244,13 @@ void scanKeys() {
 }
 
 void onKeyEvent(uint8_t index, bool pressed) {
-  // Sempre reporta pela serial: se o software acabou de abrir, ele já
-  // recebe eventos mesmo antes do primeiro ping.
+  // Sempre pela serial: o software recebe eventos antes do primeiro ping.
   char msg[48];
   int n = snprintf(msg, sizeof(msg), "{\"t\":\"key\",\"k\":%u,\"e\":\"%s\"}\n",
                    index, pressed ? "down" : "up");
   writeSerial(msg, (size_t)n);
 
 #ifdef ENABLE_BLE
-  // Modo autônomo: replica o atalho fixo via teclado BLE.
   if (!hostPresent && bleConnected) {
     const FallbackKey &fb = FALLBACK_KEYS[index];
     if (fb.consumer != 0) {
@@ -316,20 +271,20 @@ void onKeyEvent(uint8_t index, bool pressed) {
 
 void setupBle() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
-  // Pareamento "just works": bonding ligado, sem MITM (não há tela/teclado
-  // para senha), LE Secure Connections ligado — como teclados BLE comuns.
+  // "Just works": bonding e LE Secure Connections, sem MITM (não há onde
+  // digitar senha).
   NimBLEDevice::setSecurityAuth(true, false, true);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
   bleServer = NimBLEDevice::createServer();
   bleServer->setCallbacks(new ServerCallbacks());
-  bleServer->advertiseOnDisconnect(true);  // volta a anunciar ao desconectar
+  bleServer->advertiseOnDisconnect(true);
 
   bleHid = new NimBLEHIDDevice(bleServer);
   bleHid->setManufacturer(BLE_MANUFACTURER);
-  // PnP: fonte do VID = 0x02 (USB-IF). VID/PID genéricos de protótipo.
-  bleHid->setPnp(0x02, 0x303A, 0x8001, 0x0200);  // AJUSTAR se tiverem VID/PID
-  bleHid->setHidInfo(0x00, 0x01);  // país 0; flags: RemoteWake
+  // Fonte USB-IF; VID/PID genéricos de protótipo.
+  bleHid->setPnp(0x02, 0x303A, 0x8001, 0x0200);
+  bleHid->setHidInfo(0x00, 0x01);  // flags: RemoteWake
   bleHid->setReportMap((uint8_t *)HID_REPORT_MAP, sizeof(HID_REPORT_MAP));
   bleKeyboardInput = bleHid->getInputReport(REPORT_ID_KEYBOARD);
   bleHid->getOutputReport(REPORT_ID_KEYBOARD);  // LEDs (ignorados)
@@ -339,8 +294,8 @@ void setupBle() {
   bleServer->start();
 
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-  adv->setAppearance(HID_KEYBOARD);  // 0x03C1
-  adv->addServiceUUID(bleHid->getHidService()->getUUID());  // 0x1812
+  adv->setAppearance(HID_KEYBOARD);
+  adv->addServiceUUID(bleHid->getHidService()->getUUID());
   adv->setName(BLE_DEVICE_NAME);
   adv->start();
 }
@@ -363,8 +318,7 @@ void sendConsumer(uint16_t usage) {
   bleConsumerInput->notify();
 }
 
-// Solta tudo o que estiver "pressionado" no lado BLE (usado quando o host
-// aparece com uma tecla segurada, para não deixar tecla presa no PC).
+// Evita tecla presa no PC quando o host chega com uma tecla segurada.
 void releaseAllBle() {
   if (!bleConnected) return;
   bool keyboardDown = false;
@@ -377,9 +331,8 @@ void releaseAllBle() {
 
 // =========================================================== serial (host)
 
-// Escreve uma mensagem completa ou nada: se o buffer de TX não comporta a
-// linha inteira (ninguém lendo a porta), descarta em vez de bloquear ou de
-// mandar meia linha.
+// Linha inteira ou nada: sem espaço no TX (ninguém lendo), descarta em vez
+// de bloquear ou mandar meia linha.
 void writeSerial(const char *data, size_t length) {
   if ((size_t)Serial.availableForWrite() < length) return;
   Serial.write((const uint8_t *)data, length);
@@ -395,7 +348,7 @@ void sendHello() {
 }
 
 void readSerial() {
-  // Limita o trabalho por volta do loop para a varredura não atrasar.
+  // Limite por volta do loop para não atrasar a varredura.
   int budget = 512;
   while (budget-- > 0 && Serial.available() > 0) {
     char ch = (char)Serial.read();
@@ -408,12 +361,12 @@ void readSerial() {
       lineLength = 0;
       discardingLine = false;
     } else if (discardingLine) {
-      // continua descartando até o fim da linha
+      continue;
     } else if (lineLength < LINE_BUFFER_SIZE - 1) {
       lineBuffer[lineLength++] = ch;
     } else {
-      // Linha maior que o buffer: descarta o resto dela inteira (em vez de
-      // recomeçar no meio e interpretar o final como uma linha nova).
+      // Linha maior que o buffer: descarta até o '\n', senão o final seria
+      // lido como linha nova.
       lineLength = 0;
       discardingLine = true;
     }
@@ -421,68 +374,57 @@ void readSerial() {
 }
 
 void handleLine(const char *line) {
-  if (line[0] != '{') return;  // ignora lixo/eco
+  if (line[0] != '{') return;  // lixo/eco
 
   JsonDocument doc;
   if (deserializeJson(doc, line) != DeserializationError::Ok) return;
   const char *type = doc["t"];
   if (type == nullptr) return;
 
-  // Mensagem válida: o host está presente.
   lastHostMessageAt = millis();
-  if (!hostPresent) {
-    onHostArrived();
-  }
+  if (!hostPresent) onHostArrived();
 
   if (strcmp(type, "ping") == 0) {
     writeSerial("{\"t\":\"pong\"}\n", 13);
   } else if (strcmp(type, "text") == 0) {
-    hostScreenReceived = true;
     showTextScreen(doc["lines"]);
   } else if (strcmp(type, "img") == 0) {
-    hostScreenReceived = true;
     showImageScreen(doc["d"]);
   }
 }
 
-// Transição ausente -> presente (primeira mensagem válida após o timeout).
 void onHostArrived() {
   hostPresent = true;
-  hostScreenReceived = false;
 #ifdef ENABLE_BLE
   releaseAllBle();
 #endif
-  sendHello();         // o host (re)envia o perfil ao receber o hello
-  showHostConnectedScreen();  // até chegar o primeiro text/img
+  sendHello();  // o host reenvia o perfil ao receber o hello
+  showHostConnectedScreen();
 }
 
 void updateHostPresence() {
   if (hostPresent && (millis() - lastHostMessageAt) >= HOST_TIMEOUT_MS) {
     hostPresent = false;
-    showWaitingScreen();  // host saiu: volta à tela de espera
+    showWaitingScreen();
   }
 }
 
 // ================================================================== display
 
 #ifdef ENABLE_BLE
-// Runa do Bluetooth (5x9), desenhada no canto enquanto há conexão BLE.
+// Runa do Bluetooth (5x9).
 static const uint8_t BLE_ICON[] PROGMEM = {
     0x20, 0x30, 0xA8, 0x70, 0x20, 0x70, 0xA8, 0x30, 0x20,
 };
 #endif
 
-// Tela de espera: o polvo do logo com os tentáculos girando (quadros em
-// espera_anim.h, gerados por tools/animacao_espera.py) e, embaixo,
-// "Aguardando conexão" com os pontinhos animados.
 void showWaitingScreen() {
   waitingStepShown = -1;
   updateWaitingScreen();
 }
 
-// Chamada a cada volta do loop: só redesenha quando o passo da animação
-// muda (a cada ESPERA_QUADRO_MS). Cada envio ao display leva ~25 ms no I2C,
-// por isso não se redesenha a cada volta.
+// Só redesenha quando o passo da animação muda: cada envio ao display leva
+// ~25 ms no I2C.
 void updateWaitingScreen() {
   if (hostPresent || !displayOk) return;
   int32_t step = (int32_t)(millis() / ESPERA_QUADRO_MS);
@@ -494,8 +436,7 @@ void updateWaitingScreen() {
                      ESPERA_POLVO[step % ESPERA_QUADROS], ESPERA_LADO,
                      ESPERA_LADO, SSD1306_WHITE);
 
-  // O texto fica centralizado contando os três pontos, para não "andar"
-  // enquanto eles aparecem.
+  // Centraliza contando os três pontos, para o texto não andar.
   constexpr int16_t CELL_W = 6;
   constexpr int16_t textChars = sizeof(ESPERA_TEXTO) - 1;
   int16_t x = (OLED_W - (textChars + 3) * CELL_W) / 2;
@@ -526,7 +467,6 @@ void showHostConnectedScreen() {
   display.display();
 }
 
-// Escreve um texto centralizado horizontalmente na altura y.
 void drawCentered(const char *text, int16_t y) {
   int16_t bx, by;
   uint16_t bw, bh;
@@ -560,10 +500,9 @@ void showTextScreen(JsonArrayConst lines) {
 void showImageScreen(const char *base64Data) {
   if (!displayOk || base64Data == nullptr) return;
   size_t written = base64Decode(base64Data, imageBuffer, sizeof(imageBuffer));
-  if (written != sizeof(imageBuffer)) return;  // payload inválido
+  if (written != sizeof(imageBuffer)) return;
   display.clearDisplay();
-  // Formato "xbm1" do protocolo = formato nativo do drawBitmap
-  // (varredura por linhas, MSB primeiro, 1 = pixel aceso).
+  // "xbm1" do protocolo já é o formato do drawBitmap (linhas, MSB primeiro).
   display.drawBitmap(0, 0, imageBuffer, OLED_W, OLED_H, SSD1306_WHITE);
   display.display();
 }
@@ -576,11 +515,11 @@ int8_t base64Value(char ch) {
   if (ch >= '0' && ch <= '9') return ch - '0' + 52;
   if (ch == '+') return 62;
   if (ch == '/') return 63;
-  return -1;  // '=' ou caractere inválido
+  return -1;
 }
 
-// Decodifica base64 (ignora '=' e caracteres inválidos). Retorna o número
-// de bytes escritos, ou 0 se o resultado não couber em maxOut.
+// Ignora '=' e caracteres inválidos. Retorna os bytes escritos, ou 0 se não
+// couber em maxOut.
 size_t base64Decode(const char *input, uint8_t *output, size_t maxOut) {
   size_t outLength = 0;
   uint32_t accumulator = 0;
@@ -592,7 +531,7 @@ size_t base64Decode(const char *input, uint8_t *output, size_t maxOut) {
     bits += 6;
     if (bits >= 8) {
       bits -= 8;
-      if (outLength >= maxOut) return 0;  // payload maior que o esperado
+      if (outLength >= maxOut) return 0;
       output[outLength++] = (uint8_t)(accumulator >> bits);
     }
   }

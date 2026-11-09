@@ -1,10 +1,7 @@
 """Trava do instalador: o Polpad não abre no meio de uma instalação.
 
-Enquanto o instalador do Inno Setup roda, ele mantém o mutex ``MUTEX``
-(``SetupMutex`` em ``tools/polpad.iss``). Nesse intervalo a pasta
-``_internal`` está sendo apagada e copiada de novo; um Polpad aberto
-agora acharia o Qt pela metade e mostraria um erro do Python. A
-conferência roda antes de qualquer import do Qt e usa só ``ctypes``.
+O Inno Setup mantém o mutex ``MUTEX`` (``SetupMutex`` em ``tools/polpad.iss``)
+enquanto recopia ``_internal``; roda antes de importar o Qt, só com ``ctypes``.
 """
 
 from __future__ import annotations

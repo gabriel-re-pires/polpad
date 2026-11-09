@@ -1,14 +1,7 @@
-"""Página de configurações globais.
+"""Página de configurações globais, aberta dentro da janela principal.
 
-Abre dentro da janela principal (no lugar do aparelho), com um botão
-"Voltar" — não é mais um diálogo por cima da janela.
-
-- Tecla de modo: escolhida na lista ou capturada pressionando a tecla
-  física no próprio macropad ("defina no próprio teclado").
-- Comportamento: troca automática de perfil e início com o sistema.
-- Integrações Home Assistant e OBS Studio, com teste de conexão.
-
-O que o display mostra fica no inspetor, ao lado da prévia do aparelho.
+Tecla de modo (lista ou captura no macropad), comportamento, integrações
+Home Assistant/OBS e zona de risco.
 """
 
 from __future__ import annotations
@@ -105,14 +98,12 @@ class SettingsPage(QWidget):
         self._settings = settings
         # Usados apenas para avisar se a tecla de modo escolhida já tem ação.
         self._profiles = profiles or []
-        # Ativado enquanto o usuário estiver "capturando" a tecla de modo.
         self.capturing_mode_key = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ------------------------------------------------------- cabeçalho
         header = QHBoxLayout()
         header.setContentsMargins(28, 20, 28, 12)
         header.setSpacing(12)
@@ -134,7 +125,6 @@ class SettingsPage(QWidget):
         header.addWidget(save)
         root.addLayout(header)
 
-        # -------------------------------------------------------- conteúdo
         scroll = FitScrollArea()
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         content = QWidget()
@@ -237,8 +227,6 @@ class SettingsPage(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll, stretch=1)
 
-    # ------------------------------------------------------- zona de risco
-
     def _danger_zone(self, uninstall: tuple[bool, str]) -> QFrame:
         card = QFrame()
         card.setObjectName("dangerCard")
@@ -321,8 +309,6 @@ class SettingsPage(QWidget):
         ):
             self.reset_profiles_requested.emit()
 
-    # ------------------------------------------------------------- captura
-
     def _start_capture(self) -> None:
         self.capturing_mode_key = True
         self._capture_button.setText("Pressione uma tecla no macropad…")
@@ -343,8 +329,6 @@ class SettingsPage(QWidget):
         self.capturing_mode_key = False
         self._capture_button.setText("Capturar do macropad")
         self._capture_button.setEnabled(True)
-
-    # -------------------------------------------------------------- HA
 
     def _test_ha(self) -> None:
         url = self._ha_url.text().strip()
@@ -372,11 +356,7 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, "OBS Studio", f"Conectado: {message}")
 
     def _confirm_mode_key(self, key: int) -> bool:
-        """Avisa se a tecla escolhida já tem ação configurada.
-
-        Como tecla de modo ela passa a só alternar perfis; sem o aviso, a
-        ação some da grade sem explicação.
-        """
+        """Avisa se a tecla já tem ação: como tecla de modo, a ação some da grade."""
         afetados = [p.name for p in self._profiles if p.action_for(key) is not None]
         if not afetados:
             return True

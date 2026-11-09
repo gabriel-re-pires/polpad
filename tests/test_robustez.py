@@ -1,8 +1,4 @@
-"""Testes de regressão dos defeitos corrigidos na fase de robustez.
-
-Cada teste aqui existe por causa de um defeito real observado, e não de
-uma hipótese: o comentário no início de cada classe descreve o sintoma.
-"""
+"""Regressões da fase de robustez; cada classe diz o defeito real que a motivou."""
 
 import json
 import logging
@@ -30,9 +26,8 @@ from .apoio import CofreFalso
 
 class ConfiguracaoCorrompidaTest(unittest.TestCase):
     """Só o parse do JSON era protegido: um perfil sem ``name`` ou um
-    ``obs_port`` não numérico levantavam exceção fora do ``try`` e o
-    aplicativo não abria — o usuário perdia todos os perfis. Agora cada
-    item inválido é descartado isoladamente.
+    ``obs_port`` não numérico escapavam do ``try`` e o aplicativo não
+    abria, perdendo todos os perfis.
     """
 
     def setUp(self):
@@ -74,7 +69,6 @@ class ConfiguracaoCorrompidaTest(unittest.TestCase):
         store = self._carregar({"profiles": [bruto]})
 
         self.assertEqual([p.name for p in store.profiles], ["VS Code"])
-        # A tecla válida sobrevive; as inválidas somem.
         self.assertEqual(store.profiles[0].bindings[3].params["text"], "ok")
         self.assertNotIn(7, store.profiles[0].bindings)
 
@@ -86,7 +80,6 @@ class ConfiguracaoCorrompidaTest(unittest.TestCase):
             }
         )
         self.assertEqual(store.settings.obs_port, Settings().obs_port)
-        # O perfil válido não é afetado pelo bloco de configurações ruim.
         self.assertEqual([p.name for p in store.profiles], ["Bom"])
 
     def test_raiz_que_nao_e_objeto_recomeca_do_padrao(self):
@@ -138,12 +131,8 @@ class FalhaAoSalvarTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def _quebrar_escrita(self):
-        """Faz qualquer gravação falhar como um disco cheio faria.
-
-        A falha entra nos dois caminhos de escrita: o ``Path.write_text``
-        usado em outros pontos e o ``tempfile.mkstemp`` com que o
-        ``save()`` cria o arquivo temporário de nome único.
-        """
+        """Faz qualquer gravação falhar como disco cheio: no ``Path.write_text``
+        e no ``tempfile.mkstemp`` do ``save()``."""
         for alvo, atributo in ((Path, "write_text"), (tempfile, "mkstemp")):
             patcher = mock.patch.object(
                 alvo, atributo,
@@ -594,10 +583,6 @@ class RodizioDePortasTest(unittest.TestCase):
         self.assertIsNone(link._find_port())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class HandshakeTest(unittest.TestCase):
     """O ``hello`` que o firmware envia logo após o ``pong`` chegava no
     mesmo pacote e era descartado junto com o resto do buffer do handshake;
@@ -700,13 +685,9 @@ class HandshakeTest(unittest.TestCase):
 
 
 class IconeTest(unittest.TestCase):
-    """O ícone do perfil vem de um arquivo escolhido pelo usuário.
-
-    O filtro do diálogo de arquivos é apenas uma sugestão: nada impede
-    digitar o nome de um arquivo que não é imagem. Antes, a cópia era
-    feita sem conferir nada e o problema só aparecia depois, na conversão
-    para o display, como um aviso no log e o nome do perfil no lugar do
-    ícone.
+    """O filtro do diálogo de arquivos é só sugestão: um arquivo que não
+    era imagem era copiado sem conferência e só falhava depois, na
+    conversão para o display.
     """
 
     def setUp(self):
@@ -734,7 +715,6 @@ class IconeTest(unittest.TestCase):
             self.store.import_icon(str(falso), self.perfil)
 
         self.assertIsNone(self.perfil.icon_path)
-        # E não deixou lixo no diretório de ícones.
         self.assertEqual(list(self.store.icons_dir.glob("*")), [])
 
     def test_recusa_extensao_nao_suportada(self):
@@ -831,3 +811,7 @@ class LeituraSemAtrasoTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual([m["t"] for m in pendentes], ["pong", "hello"])
         self.assertLess(time.monotonic() - inicio, 0.05)
+
+
+if __name__ == "__main__":
+    unittest.main()

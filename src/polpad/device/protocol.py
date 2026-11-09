@@ -1,8 +1,6 @@
-"""Protocolo de comunicação host <-> macropad.
+"""Protocolo host <-> macropad: JSON Lines sobre USB CDC a 115200 bps.
 
-Mensagens JSON delimitadas por ``\\n`` (JSON Lines) sobre USB CDC serial
-a 115200 bps. O documento completo do contrato, incluindo os requisitos
-do lado do firmware, está em ``docs/PROTOCOLO.md``.
+Contrato completo em ``docs/PROTOCOLO.md``.
 
 Dispositivo -> Host:
     {"t": "hello", "fw": "1.0.0", "keys": 18, "screen": {"w": 128, "h": 64}}
@@ -24,7 +22,7 @@ from typing import Any
 BAUD_RATE = 115200
 ENCODING = "utf-8"
 
-# VID USB da Espressif — usado para priorizar portas na detecção automática.
+# VID USB da Espressif, para priorizar portas na detecção.
 ESPRESSIF_VID = 0x303A
 
 
@@ -34,11 +32,7 @@ def encode(message: dict[str, Any]) -> bytes:
 
 
 def decode(line: bytes | str) -> dict[str, Any] | None:
-    """Desserializa uma linha recebida; retorna None para linhas inválidas.
-
-    Linhas inválidas são toleradas porque o boot do ESP32 imprime logs
-    de texto puro na mesma porta serial.
-    """
+    """Desserializa uma linha; None se inválida (o boot do ESP32 imprime texto)."""
     if isinstance(line, bytes):
         try:
             line = line.decode(ENCODING, errors="replace")
@@ -56,18 +50,12 @@ def decode(line: bytes | str) -> dict[str, Any] | None:
     return data
 
 
-# --------------------------------------------------------- mensagens (host)
-
 def msg_ping() -> dict[str, Any]:
     return {"t": "ping"}
 
 
 def msg_text(lines: list[str]) -> dict[str, Any]:
-    """Exibe até 3 linhas de texto no display (nome do perfil, etc.).
-
-    O texto é normalizado para ASCII (``Edição`` -> ``Edicao``) porque a
-    fonte embutida do firmware (Adafruit GFX) não possui acentos.
-    """
+    """Até 3 linhas no display, em ASCII: a fonte Adafruit GFX não tem acentos."""
     return {"t": "text", "lines": [_ascii(ln) for ln in lines[:3]]}
 
 

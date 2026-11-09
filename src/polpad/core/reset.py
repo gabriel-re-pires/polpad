@@ -1,8 +1,7 @@
 """Ações da Zona de risco das Configurações.
 
-Cada uma copia antes os perfis (a mesma cópia das trocas de versão), que
-pode ser restaurada em "Versão e atualizações". O token e a senha das
-integrações ficam no cofre do sistema, fora da cópia.
+Cada uma faz antes a mesma cópia das trocas de versão (restaurável em "Versão
+e atualizações"); token e senha ficam no cofre, fora da cópia.
 """
 
 from __future__ import annotations
@@ -18,11 +17,7 @@ from .store import Store
 def reset_settings(
     store: Store, current: str, now: datetime | None = None
 ) -> backup.Backup:
-    """Volta as configurações ao padrão; os perfis ficam.
-
-    As escolhas de atualização ficam: elas moram em "Versão e
-    atualizações", não na página que tem o botão.
-    """
+    """Volta as configurações ao padrão; perfis e escolhas de atualização ficam."""
     made = backup.create(
         store.data_dir, current, "configurações padrão", now, kind=backup.RISK
     )
@@ -32,8 +27,8 @@ def reset_settings(
         update_auto=old.update_auto,
         linux_install_prompt=old.linux_install_prompt,
     )
-    # No lugar, e não um objeto novo: o contexto das ações (app.py) guarda
-    # a referência a store.settings e ficaria com a URL e o token antigos.
+    # No lugar: o contexto das ações (app.py) guarda a referência a
+    # store.settings e ficaria com a URL e o token antigos.
     for campo in dataclasses.fields(Settings):
         setattr(old, campo.name, getattr(new, campo.name))
     store.save()

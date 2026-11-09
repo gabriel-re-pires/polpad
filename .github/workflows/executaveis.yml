@@ -1,18 +1,11 @@
 # Gera o Polpad para Windows e Linux e anexa os arquivos ao release.
 #
-# * Tag vX.Y.Z enviada (git push origin v0.5.0): testa, gera o instalador
-#   do Windows e o pacote do Linux, confere que os dois instalam e abrem, e
-#   os anexa ao release da tag com o SHA256SUMS.txt. Se o release ainda não
-#   existe, cria um RASCUNHO: escreva as notas, anexe o firmware-*.bin se
-#   houver firmware novo e publique como pré-lançamento para testar; tirando
-#   o pré-lançamento, a versão vira a oficial. (O aplicativo só enxerga
-#   releases publicados que não são pré-lançamento.)
-# * Execução manual (aba Actions → Executáveis → Run workflow) ou qualquer
-#   PR: testa e gera os arquivos, para baixar em "Artifacts" e
-#   testar. Não mexe nos releases.
+# * Tag vX.Y.Z: testa, gera, confere que instala e abre, e anexa ao release
+#   com o SHA256SUMS.txt. Sem release, cria um RASCUNHO. O aplicativo só
+#   enxerga releases publicados que não são pré-lançamento.
+# * Manual ou PR: testa e gera os arquivos em "Artifacts", sem mexer em releases.
 #
-# O PyInstaller não gera executável para outro sistema: cada um sai de um
-# runner do próprio sistema.
+# O PyInstaller não faz executável de outro sistema: um runner para cada.
 
 name: Executáveis
 
@@ -20,8 +13,7 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-  # Em todo PR: são os testes e o empacotamento dos dois sistemas, e o main
-  # exige que passem antes do merge.
+  # O main exige que passe antes do merge.
   pull_request:
 
 permissions:
@@ -44,9 +36,8 @@ jobs:
             arquivo: Polpad-Windows-Instalador.exe
             antigo: Polpad-Setup.exe
           - nome: Linux
-            # A glibc do sistema em que o executável é gerado é a mínima que
-            # ele exige. O 22.04 (glibc 2.35) cobre Ubuntu 22.04+, Debian 12,
-            # Fedora e Arch atuais; gerar no 24.04 deixaria o 22.04 de fora.
+            # A glibc do runner é a mínima exigida: a 2.35 do 22.04 cobre
+            # Ubuntu 22.04+, Debian 12, Fedora e Arch atuais.
             os: ubuntu-22.04
             arquivo: Polpad-Linux-Instalador.tar.gz
             antigo: Polpad-linux-x86_64.tar.gz
@@ -68,10 +59,8 @@ jobs:
 
       - name: Bibliotecas do sistema (Linux)
         if: runner.os == 'Linux'
-        # O Qt precisa delas para abrir janelas no X11, e o PyInstaller embute
-        # as que encontra: sem a libxcb-cursor0 aqui, o executável não abriria
-        # num Ubuntu que não a tenha instalada. O Xvfb é a tela dos testes
-        # (o pynput exige um servidor X).
+        # O PyInstaller embute as que encontra: sem a libxcb-cursor0 aqui, o
+        # executável não abriria num Ubuntu sem ela. Xvfb: o pynput exige um X.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -110,9 +99,8 @@ jobs:
 
       - name: Conferir que o executável abre (Linux)
         if: runner.os == 'Linux'
-        # Sem QT_QPA_PLATFORM: abre de verdade no X (Xvfb), o que confere
-        # também as bibliotecas xcb embutidas. Continuar rodando até o
-        # timeout (código 124) é o esperado; sair antes é falha.
+        # Sem QT_QPA_PLATFORM, para conferir as bibliotecas xcb embutidas.
+        # Rodar até o timeout (código 124) é o esperado.
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/config"
           status=0
@@ -137,10 +125,8 @@ jobs:
 
       - name: Conferir a troca e o relançamento (Linux)
         if: runner.os == 'Linux'
-        # Uma atualização pendente "9.9.9" apontando para o próprio pacote:
-        # ao abrir, o Polpad troca o executável e se reabre sozinho. A nova
-        # instância precisa ficar rodando (ela não pode reaproveitar a pasta
-        # temporária da que saiu).
+        # Atualização pendente "9.9.9" com o próprio pacote: o Polpad troca o
+        # executável, se reabre, e a nova instância precisa seguir rodando.
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/config-troca"
           dados="$XDG_CONFIG_HOME/Polpad"
@@ -193,9 +179,8 @@ jobs:
 
       - name: Empacotar (Linux)
         if: runner.os == 'Linux'
-        # O .tar.gz preserva a permissão de execução, que um download
-        # direto do navegador perderia. O de nome antigo, com o executável
-        # solto, é o que a 0.5.0 sabe instalar (sai depois da 0.6.0).
+        # O .tar.gz preserva a permissão de execução. O de nome antigo, com o
+        # executável solto, é o que a 0.5.0 sabe instalar (sai depois da 0.6.0).
         run: |
           mkdir -p pacote/Polpad-Linux
           cp dist/linux/Polpad pacote/Polpad-Linux/Polpad

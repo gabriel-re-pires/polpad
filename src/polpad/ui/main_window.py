@@ -1,28 +1,7 @@
-"""Janela principal do configurador.
+"""Janela principal: perfis à esquerda, aparelho no centro, inspetor à direita.
 
-Layout em três colunas sob uma barra superior::
-
-    ┌──────────────────────────────────────────────────────────────────┐
-    │ 🐙 Polpad                                 [● COM8          ▾]  ☰  │
-    ├─────────────┬──────────────────────────────────┬─────────────────┤
-    │ Perfis + ⚙ ◧│  VS Code ●                       │◨ VS Code        │
-    │ ▣ VS Code ● │  ┌────────────────────────────┐  │ [prévia ícone]  │
-    │ ▣ OBS       │  │ [OLED ]   [ ] [ ] [ ]      │  │ Tela do display │
-    │ ▣ Jogos     │  │ [ ] [ ] [ ] [ ] [ ]        │  │ Teclas: 5 de 18 │
-    │             │  │ [ ] [ ] [ ] [ ] [ ]        │  │  1 Copiar  C+C  │
-    │             │  │ [ ] [ ] [ ] [ ] [ ]        │  │  2 Colar   C+V  │
-    │             │  └────────────────────────────┘  │                 │
-    └─────────────┴──────────────────────────────────┴─────────────────┘
-
-O aparelho no centro é o protagonista: tem a forma do PCB e o display
-na posição real, mostrando o mesmo quadro que o OLED físico. Cada coluna
-lateral recolhe pelo ícone ◧/◨ no próprio cabeçalho e vira um trilho fino
-(o de perfis mantém os ladrilhos). A coluna da direita mostra o perfil do
-centro — ícone, tela do display e resumo das teclas — e, ao clicar numa
-tecla, os detalhes dela. O seletor de porta mostra a conexão (bolinha
-verde). Configurações, gravação do firmware e nova busca de portas ficam
-no menu ☰. O editor de ação e as configurações abrem como página no lugar
-das colunas, com "Voltar".
+As colunas laterais recolhem para um trilho fino. Editor de ação, configurações,
+gravação e versão abrem como página no lugar das colunas.
 """
 
 from __future__ import annotations
@@ -76,9 +55,7 @@ log = logging.getLogger(__name__)
 
 
 class _Stage(QWidget):
-    """Área central. Um clique que não cai numa tecla (nem num botão)
-    chega até aqui — as teclas e os botões consomem os próprios cliques,
-    o resto (fundo, corpo do aparelho, display, títulos) os repassa."""
+    """Área central; recebe os cliques que não caem numa tecla ou botão."""
 
     background_clicked = Signal()
 
@@ -98,16 +75,12 @@ class MainWindow(QMainWindow):
         self._editing_profile_id: str | None = core.store.active_profile_id
         self._selected_key: int | None = None
         self._settings_page: SettingsPage | None = None
-        # Página aberta no lugar das colunas (configurações ou editor de ação).
+        # Página aberta no lugar das colunas.
         self._overlay: QWidget | None = None
-        # Ação copiada pelo menu de contexto da grade, para colar em outra tecla.
         self._clipboard_action: Action | None = None
-        # Porta e versão anunciadas pelo dispositivo — usadas pelo diálogo de
-        # gravação para pré-selecionar a porta e comparar com o release.
         self._connected_port: str | None = None
         self._device_version: str | None = None
-        # Portas sem permissão de acesso (Linux) para as quais já oferecemos
-        # liberar o acesso, e a que espera a janela aparecer para oferecer.
+        # Linux: portas sem permissão já oferecidas, e a que espera a janela abrir.
         self._access_offered: set[str] = set()
         self._access_pending: str | None = None
 
@@ -126,7 +99,6 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(0)
         root_layout.addWidget(self._build_top_bar())
 
-        # --------------------------------------------------------- conteúdo
         self._profile_panel = ProfilePanel(core.store)
         self._profile_panel.profile_selected.connect(self._on_edit_profile)
         self._profile_panel.activate_requested.connect(core.controller.activate_profile)
@@ -167,7 +139,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
         splitter.setSizes([270, 660, 330])
-        # Página 0: as três colunas. Página 1: configurações (criada ao abrir).
+        # Página 0: as três colunas; a página aberta por cima entra depois.
         self._pages = QStackedWidget()
         self._pages.addWidget(splitter)
         root_layout.addWidget(self._pages, stretch=1)
@@ -176,7 +148,6 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self._version_label = StatusVersion(f"{APP_NAME} {__version__}", self.statusBar())
 
-        # ------------------------------------------------------------ sinais
         core.bridge.state.connect(self._set_connected)
         core.bridge.port_denied.connect(self._on_port_denied)
         self._access_done.connect(self._on_access_done)
@@ -184,12 +155,10 @@ class MainWindow(QMainWindow):
         core.bridge.action_error.connect(self._on_action_error)
         core.bridge.profile_changed.connect(self._on_active_profile_changed)
 
-        # ---------------------------------------------------------- atalhos
         QShortcut(QKeySequence("Ctrl+,"), self, self._open_settings)
         QShortcut(QKeySequence("F5"), self, self._reload_ports)
 
-        # A hora da tela personalizada muda sozinha: o aparelho da tela
-        # acompanha o que o controlador envia ao display.
+        # A hora da tela personalizada muda sozinha; a prévia acompanha.
         self._clock_timer = QTimer(self)
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self._on_clock)
@@ -204,10 +173,9 @@ class MainWindow(QMainWindow):
         self._refresh_autostart()
 
     def _refresh_autostart(self) -> None:
-        """Regrava a inicialização com o sistema, se estiver ligada.
+        """Regrava a inicialização com o sistema, se ligada.
 
-        A entrada guarda o caminho do executável: depois de mover o
-        aplicativo, ela apontaria para um arquivo que não existe mais.
+        A entrada guarda o caminho do executável, que muda se o app for movido.
         """
         if not self._core.store.settings.start_with_windows:
             return
@@ -219,8 +187,6 @@ class MainWindow(QMainWindow):
                 f"{autostart.SYSTEM_NAME}.",
                 6000,
             )
-
-    # ------------------------------------------------------------ montagem
 
     def _build_top_bar(self) -> QWidget:
         bar = QFrame()
@@ -254,7 +220,6 @@ class MainWindow(QMainWindow):
         self._port_combo.currentIndexChanged.connect(self._on_port_selected)
         top.addWidget(self._port_combo)
 
-        # Menu sanduíche no canto direito: só o ícone, sem caixa de botão.
         top.addSpacing(4)
         menu_btn = bare_icon_button("menu", "Menu")
         menu_btn.setIconSize(QSize(20, 20))
@@ -285,9 +250,7 @@ class MainWindow(QMainWindow):
     def _on_side_collapsed(self, index: int, collapsed: bool) -> None:
         """Repassa a largura entre a coluna e o centro.
 
-        Recolhida, a coluna fica com a largura do trilho e o resto vai para
-        o aparelho; expandida, volta à largura que tinha. O QSplitter não
-        faz isso sozinho: ele mantém a fatia e deixa um vazio ao lado.
+        O QSplitter sozinho manteria a fatia e deixaria um vazio ao lado.
         """
         sizes = self._splitter.sizes()
         side = self._splitter.widget(index)
@@ -310,7 +273,6 @@ class MainWindow(QMainWindow):
         self._profile_title = QLabel()
         self._profile_title.setObjectName("headline")
         head.addWidget(self._profile_title)
-        # Perfil em uso no aparelho: só uma bolinha verde, como na lista.
         self._active_dot = QLabel()
         self._active_dot.setFixedSize(10, 10)
         self._active_dot.setStyleSheet(f"background:{style.SUCCESS}; border-radius:5px;")
@@ -338,16 +300,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._device, stretch=1)
         return stage
 
-    # -------------------------------------------------------------- layout
-
     def _restore_layout(self) -> None:
         """Recupera posição, tamanho e divisão da sessão anterior."""
         settings = QSettings()
         geometry = settings.value("janela/geometria")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        # A geometria salva também passa pelo ajuste: com o mínimo fixo do
-        # __init__, ela voltaria maior que a área útil numa tela pequena.
+        # A geometria salva também passa pelo ajuste: numa tela menor ela
+        # voltaria maior que a área útil.
         if geometry is None or not self.isMaximized():
             self._fit_to_screen()
         # Chave nova: o estado salvo pela versão de duas colunas não serve.
@@ -361,13 +321,10 @@ class MainWindow(QMainWindow):
             side.set_collapsed(str(settings.value(key, "false")).lower() == "true")
 
     def _fit_to_screen(self) -> None:
-        """Cabe na área útil da tela.
+        """Cabe na área útil da tela, baixando o mínimo se preciso.
 
-        O tamanho padrão (1280×760) passa da área útil de um notebook
-        1366×768 — painéis e barra de tarefas tomam parte da altura — e o
-        rodapé ficava escondido atrás deles. Com escala de 125% a área
-        útil cai para 1093×576, menor até que o mínimo da janela; nesse
-        caso o mínimo desce para caber.
+        Num notebook 1366×768 (ou 1093×576 com escala de 125%) o tamanho
+        padrão escondia o rodapé atrás da barra de tarefas.
         """
         screen = self.screen()
         if screen is None:
@@ -389,8 +346,6 @@ class MainWindow(QMainWindow):
         settings.setValue("janela/perfis_recolhidos", self._left.collapsed)
         settings.setValue("janela/detalhes_recolhidos", self._right.collapsed)
 
-    # ------------------------------------------------------------- bandeja
-
     def _setup_tray(self) -> None:
         self._tray = QSystemTrayIcon(_app_icon(), self)
         self._tray.setToolTip(APP_NAME)
@@ -399,8 +354,6 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self.present)
         menu.addAction(open_action)
         menu.addSeparator()
-        # O aplicativo passa a maior parte do tempo oculto na bandeja: trocar
-        # de perfil daqui evita ter que reabrir a janela.
         self._tray_profiles_menu = menu.addMenu("Trocar perfil")
         menu.addSeparator()
         quit_action = QAction("Sair", menu)
@@ -415,13 +368,7 @@ class MainWindow(QMainWindow):
         self._tray.show()
 
     def present(self) -> None:
-        """Mostra a janela, restaurada e à frente.
-
-        Usada pelo ícone da bandeja e quando uma segunda instância pede
-        que esta apareça — nos dois casos a janela pode estar minimizada,
-        e ``showNormal()`` a restaura preservando a distinção entre
-        minimizada e maximizada.
-        """
+        """Mostra a janela restaurada e à frente (bandeja ou segunda instância)."""
         if self.isMaximized():
             self.showMaximized()
         else:
@@ -466,8 +413,6 @@ class MainWindow(QMainWindow):
         self._quitting = True
         self.close()
 
-    # ------------------------------------------------------------- conexão
-
     def _reload_ports(self) -> None:
         """Atualiza a lista de portas mantendo a escolha atual."""
         current = (
@@ -479,17 +424,15 @@ class MainWindow(QMainWindow):
         self._port_combo.set_connected(self._connected_port)
 
     def _start_initial_link(self) -> None:
-        # set_ports não dispara currentIndexChanged: o enlace é criado uma
-        # vez só, aqui (criar e destruir em sequência fazia o "hello" do
-        # firmware se perder na troca).
+        # set_ports não dispara currentIndexChanged: o enlace nasce uma vez só,
+        # aqui (recriá-lo em sequência perdia o "hello" do firmware).
         self._port_combo.set_ports(
             available_ports(), self._core.store.settings.serial_port
         )
         self._on_port_selected()
 
     def _on_port_selected(self) -> None:
-        # None = busca automática. Escolher de novo é um pedido explícito:
-        # se a porta continuar sem permissão, vale oferecer a liberação outra vez.
+        # None = busca automática. Escolher de novo reabre a oferta de liberação.
         self._access_offered.clear()
         self._core.use_port(self._port_combo.currentData())
 
@@ -503,8 +446,7 @@ class MainWindow(QMainWindow):
         if self.isVisible():
             self._offer_port_access(port)
             return
-        # Na bandeja (inicialização automática): avisa e pergunta quando a
-        # janela abrir, em vez de soltar uma janela de senha sozinha na tela.
+        # Na bandeja: avisa e só pergunta quando a janela abrir.
         self._access_pending = port
         tray = getattr(self, "_tray", None)
         if tray is not None and tray.isVisible():
@@ -520,7 +462,7 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if self._access_pending:
             port, self._access_pending = self._access_pending, None
-            # Depois do show: a caixa de diálogo precisa da janela já na tela.
+            # A caixa de diálogo precisa da janela já na tela.
             QTimer.singleShot(0, lambda: self._offer_port_access(port))
 
     def _offer_port_access(self, port: str) -> None:
@@ -592,8 +534,7 @@ class MainWindow(QMainWindow):
     def _set_connected(self, connected: bool, port: str) -> None:
         self._connected_port = port if connected else None
         if not connected:
-            # A versão pertence ao dispositivo que saiu: mantê-la faria o
-            # diálogo de gravação comparar com um firmware que não está mais lá.
+            # A versão era do dispositivo que saiu.
             self._device_version = None
         self._port_combo.set_connected(port if connected else None)
         if connected and self._device_version:
@@ -604,8 +545,6 @@ class MainWindow(QMainWindow):
             state = f"conectado ({port})" if connected else "desconectado"
             self._tray.setToolTip(f"{APP_NAME} — {state}")
 
-    # ------------------------------------------------------------- eventos
-
     def _on_device_message(self, message: dict[str, Any]) -> None:
         if message.get("t") == "hello":
             version = str(message.get("fw") or "").strip()
@@ -614,25 +553,17 @@ class MainWindow(QMainWindow):
                 if self._connected_port:
                     self._set_connected(True, self._connected_port)
                 if self._updates is not None:
-                    # Firmware mais novo no GitHub? O controlador avisa.
                     self._updates.device_firmware(version)
             return
         if message.get("t") != "key" or message.get("e") != "down":
             return
         key = int(message.get("k", -1))
-        # Acende a tecla no aparelho da tela: confirma visualmente que o
-        # dispositivo chegou até o software, mesmo quando a ação não tem
-        # efeito visível.
+        # Confirma que a tecla chegou, mesmo se a ação não tiver efeito visível.
         self._device.flash(key)
         self.statusBar().showMessage(f"Tecla {key + 1} pressionada", 1500)
 
     def _on_action_error(self, message: str) -> None:
-        """Reporta a falha de uma ação onde o usuário possa vê-la.
-
-        A barra de status não serve quando a janela está oculta na bandeja
-        — que é o estado normal de uso —, então nesse caso a notificação
-        vai pelo ícone da bandeja.
-        """
+        """Reporta a falha na barra de status ou, com a janela oculta, na bandeja."""
         self.statusBar().showMessage(f"Erro: {message}", 6000)
         if not self.isVisible() and self._tray.isVisible():
             self._tray.showMessage(APP_NAME, message, QSystemTrayIcon.Warning, 5000)
@@ -641,13 +572,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Perfil ativo: {profile.name}", 3000)
         self._refresh_all()
         if self._core.controller.splashing:
-            # O display mostra o ícone por um instante e volta ao mapa; o
-            # preview acompanha a volta.
+            # O display mostra o ícone por um instante; a prévia acompanha a volta.
             QTimer.singleShot(int(Controller.SPLASH_S * 1000) + 60, self._refresh_preview)
 
     def _on_edit_profile(self, profile_id: str) -> None:
         if profile_id != self._editing_profile_id:
-            # Outro perfil no centro: a coluna da direita volta à visão dele.
             self._selected_key = None
         self._editing_profile_id = profile_id
         self._refresh_stage()
@@ -656,7 +585,6 @@ class MainWindow(QMainWindow):
     def _on_icon_changed(self) -> None:
         self._profile_panel.refresh()
         self._refresh_preview()
-        # Ícone novo no perfil ativo: o aparelho mostra na hora.
         if self._editing_profile_id == self._core.store.active_profile_id:
             self._core.controller.push_display()
 
@@ -667,8 +595,6 @@ class MainWindow(QMainWindow):
     def _activate_editing(self) -> None:
         if self._editing_profile_id:
             self._core.controller.activate_profile(self._editing_profile_id)
-
-    # --------------------------------------------------------------- teclas
 
     def _editing_profile(self) -> Profile | None:
         return self._core.store.profile_by_id(self._editing_profile_id)
@@ -769,8 +695,7 @@ class MainWindow(QMainWindow):
         self._core.store.save()
         self._profile_panel.refresh()
         self._refresh_stage()
-        # O mapa do display mostra as abreviações: se este é o perfil
-        # ativo, o aparelho precisa do quadro novo.
+        # O mapa do display mostra as abreviações das teclas.
         if self._editing_profile_id == self._core.store.active_profile_id:
             self._core.controller.push_display()
         self._refresh_preview()
@@ -791,7 +716,6 @@ class MainWindow(QMainWindow):
 
         action = profile.action_for(key)
         menu = QMenu(self)
-
         editar = menu.addAction("Editar…")
         testar = menu.addAction("Testar (3 s)")
         menu.addSeparator()
@@ -799,7 +723,6 @@ class MainWindow(QMainWindow):
         colar = menu.addAction("Colar ação")
         menu.addSeparator()
         limpar = menu.addAction("Limpar tecla")
-
         for item in (testar, copiar, limpar):
             item.setEnabled(action is not None)
         colar.setEnabled(self._clipboard_action is not None)
@@ -821,17 +744,11 @@ class MainWindow(QMainWindow):
             self._clear_key(key)
 
     def _test_action(self, action: Action) -> None:
-        """Executa a ação após um intervalo, como faz o editor.
-
-        O atraso existe para o usuário levar o foco à janela alvo: um
-        atalho como Ctrl+C iria para o configurador se disparasse já.
-        """
+        """Executa a ação em 3 s, para dar tempo de focar a janela alvo."""
         self.statusBar().showMessage(
             "Executando em 3 segundos — leve o foco à janela alvo…", 3000
         )
         QTimer.singleShot(3000, lambda: self._core.runner.submit(action))
-
-    # --------------------------------------------------------------- diálogos
 
     def _open_flash_page(self) -> None:
         """Abre a gravação do firmware, já apontada para a porta em uso."""
@@ -848,18 +765,14 @@ class MainWindow(QMainWindow):
             page.deleteLater()
 
     def _on_flash_running(self, running: bool) -> None:
-        # Trocar de porta no meio da gravação religaria o enlace na COM que
-        # o esptool está usando.
+        # Trocar de porta agora religaria o enlace na porta do esptool.
         self._port_combo.setEnabled(not running)
         if not running:
-            # A gravação reinicia o ESP32: as portas podem ter mudado de número.
+            # A gravação reinicia o ESP32 e a porta pode mudar de número.
             self._reload_ports()
 
     def _show_overlay(self, page: QWidget) -> bool:
-        """Mostra ``page`` no lugar das colunas (uma por vez).
-
-        Devolve ``False`` se a página aberta não pode ser deixada agora.
-        """
+        """Mostra ``page`` no lugar das colunas; ``False`` se a atual não deixa sair."""
         if page is self._overlay:
             self._pages.setCurrentWidget(page)
             return True
@@ -890,7 +803,6 @@ class MainWindow(QMainWindow):
         return True
 
     def _open_settings(self) -> None:
-        """Abre as configurações como página, no lugar das colunas."""
         if self._settings_page is not None:
             return
         uninstall = (
@@ -916,13 +828,10 @@ class MainWindow(QMainWindow):
     def _close_settings(self) -> None:
         self._close_overlay()
 
-    # ------------------------------------------------- captura da tecla de modo
-
     def _start_capture(self) -> None:
-        """A próxima tecla do macropad vai para as configurações.
+        """Desvia a próxima tecla para as configurações.
 
-        Quem desvia é o controlador: se a janela só repassasse a tecla à
-        página, ele executaria a ação dela do mesmo jeito.
+        O desvio é no controlador para que ele não execute a ação da tecla.
         """
         self._core.controller.key_capture = self._on_key_captured
 
@@ -981,14 +890,10 @@ class MainWindow(QMainWindow):
         self._refresh_all()
         self.statusBar().showMessage("Perfis apagados.", 4000)
 
-    # ------------------------------------------------------------ refresh
-
     def _refresh_all(self) -> None:
         controller = self._core.controller
-        # Renomear ou excluir o perfil ativo muda o que o aparelho deve
-        # mostrar. Quadros iguais ao último não são reenviados, e o ícone de
-        # uma troca de perfil em andamento não é cortado (o fim dele já
-        # envia o quadro atualizado).
+        # Renomear ou excluir o perfil ativo muda o display. Durante o ícone de
+        # troca não envia: o fim dele já manda o quadro atualizado.
         if not controller.splashing:
             controller.push_display()
         self._profile_panel.refresh()
@@ -997,7 +902,6 @@ class MainWindow(QMainWindow):
         self._refresh_tray_profiles()
 
     def _refresh_tray_profiles(self) -> None:
-        """Reconstrói o submenu de perfis da bandeja."""
         menu = self._tray_profiles_menu
         menu.clear()
         profiles = self._core.store.profiles
@@ -1058,12 +962,9 @@ class MainWindow(QMainWindow):
             self._refresh_preview()
 
     def _refresh_preview(self) -> None:
-        """Mostra no aparelho da tela o display do perfil em edição.
+        """Mostra na tela o display do perfil em edição.
 
-        O quadro vem do mesmo código que o envia ao dispositivo, então o
-        preview nunca diverge do hardware. Para o perfil ativo ele espelha
-        o aparelho (inclusive o ícone da troca); para os outros, mostra a
-        tela que o display terá quando o perfil for ativado.
+        O quadro vem do mesmo código que o envia ao dispositivo, então não diverge.
         """
         store = self._core.store
         profile = store.profile_by_id(self._editing_profile_id) or store.active_profile
@@ -1073,18 +974,12 @@ class MainWindow(QMainWindow):
         if frame is not None:
             self._device.oled.show_frame(frame)
 
-    # ------------------------------------------------------------ ciclo
-
     def closeEvent(self, event) -> None:  # noqa: N802 — API Qt
-        # Nos dois caminhos (esconder ou sair) o layout atual é o que o
-        # usuário quer reencontrar na próxima abertura.
         self._save_layout()
         if not self._quitting and self._tray.isVisible():
-            # Fechar a janela apenas esconde: o macropad continua funcionando.
-            # Sem aviso na bandeja: repetido a cada sessão, só incomodava.
+            # Fechar só esconde na bandeja; sem aviso, que a cada sessão incomodava.
             event.ignore()
-            # Com a janela escondida, uma captura pendente engoliria a
-            # próxima tecla sem ninguém ver.
+            # Escondida, uma captura pendente engoliria a próxima tecla.
             self._cancel_capture()
             self.hide()
             return
@@ -1092,11 +987,9 @@ class MainWindow(QMainWindow):
         self._shutdown_and_quit()
 
     def quit_for_switch(self) -> None:
-        """Sai para uma troca de versão, restauração ou reinício.
+        """Sai para troca de versão, restauração ou reinício.
 
-        Passa pelo mesmo encerramento de "Sair" (para o enlace serial, grava
-        a configuração, apaga o aviso), mas sem instalar a atualização
-        pendente: quem chama já cuidou da troca.
+        Igual a "Sair", mas sem instalar a atualização pendente.
         """
         self._quitting = True
         self._save_layout()
@@ -1108,13 +1001,11 @@ class MainWindow(QMainWindow):
         if self._updates is not None:
             self._updates.shutdown()
         self._core.shutdown()
-        # Com setQuitOnLastWindowClosed(False), o loop de eventos precisa
-        # ser encerrado explicitamente.
+        # Com setQuitOnLastWindowClosed(False) o loop precisa ser encerrado à mão.
         from PySide6.QtWidgets import QApplication
 
         QApplication.quit()
 
 
 def _app_icon() -> QIcon:
-    """Ícone do aplicativo (ver :mod:`polpad.ui.app_icon`)."""
     return app_icon.icon()

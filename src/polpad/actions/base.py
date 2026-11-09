@@ -1,9 +1,6 @@
-"""Registro de tipos de ação (padrão Registry).
+"""Registro de tipos de ação.
 
-Cada tipo de ação é uma função ``(params, context) -> None`` registrada
-pelo decorador :func:`register`. Adicionar um novo tipo de ação ao
-sistema significa apenas registrar uma nova função — nenhuma outra
-camada precisa mudar.
+Cada tipo é uma função ``(params, context) -> None`` registrada por :func:`register`.
 """
 
 from __future__ import annotations
@@ -12,7 +9,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-# Assinatura de um executor: recebe os parâmetros da ação e o contexto.
 Handler = Callable[[dict[str, Any], "ActionContext"], None]
 
 _registry: dict[str, ActionType] = {}
@@ -26,9 +22,7 @@ class ActionType:
     title: str           # nome exibido ao usuário
     description: str     # ajuda curta exibida no editor
     handler: Handler = field(repr=False, default=None)  # type: ignore[assignment]
-    # Ações "remotas" fazem E/S de rede e podem levar segundos. Executam em
-    # uma via própria para não atrasar as teclas seguintes; as demais
-    # dependem do foco do teclado e precisam manter a ordem entre si.
+    # Rede pode levar segundos: via própria para não atrasar as teclas seguintes.
     remote: bool = False
 
 

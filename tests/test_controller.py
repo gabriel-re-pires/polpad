@@ -95,7 +95,6 @@ class ControllerTest(unittest.TestCase):
         self._press(17)
         self.assertEqual(self.store.active_profile.name, "B")
         self.assertEqual(self.changed[-1].name, "B")
-        # O display recebe a tela do novo perfil.
         self.assertEqual(self._last_frame().tobytes(), self._expected("B").tobytes())
         # A tecla de modo nunca dispara ações.
         self.assertEqual(self.runner.submitted, [])

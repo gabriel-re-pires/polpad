@@ -1,10 +1,7 @@
-"""Configuração de log do aplicativo.
+"""Configuração de log.
 
-O aplicativo roda normalmente sob ``pythonw.exe`` (sem console), onde
-``sys.stdout``/``sys.stderr`` são ``None`` e qualquer mensagem — inclusive
-o traceback de uma exceção não tratada — se perderia. Por isso o log vai
-para um arquivo rotativo em ``%APPDATA%/Polpad/logs/``, e o
-console só é usado quando existe (execução via ``python -m polpad``).
+Sob ``pythonw.exe`` ``sys.stderr`` é ``None``; por isso o log vai para um
+arquivo rotativo em ``%APPDATA%/Polpad/logs/`` e o console só quando existe.
 """
 
 from __future__ import annotations
@@ -32,8 +29,7 @@ def log_dir() -> Path:
 def setup(level: int = logging.INFO) -> Path | None:
     """Instala os handlers de log. Devolve o caminho do arquivo, se houver.
 
-    Falhar ao criar o arquivo de log nunca deve impedir o aplicativo de
-    abrir: nesse caso restam apenas os handlers de console (se existirem).
+    Falhar no arquivo de log não impede o app de abrir.
     """
     root = logging.getLogger()
     root.setLevel(level)
@@ -42,7 +38,6 @@ def setup(level: int = logging.INFO) -> Path | None:
     logging.getLogger("obsws_python").setLevel(logging.WARNING)
     formatter = logging.Formatter(_FORMAT)
 
-    # Console: só quando há um terminal de verdade (python.exe).
     if sys.stderr is not None:
         console = logging.StreamHandler(sys.stderr)
         console.setFormatter(formatter)

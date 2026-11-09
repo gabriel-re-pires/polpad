@@ -1,14 +1,7 @@
-"""Inicialização automática com o sistema.
+"""Inicialização automática com o sistema, com ``--minimized`` e sem admin.
 
-No Windows registra o aplicativo em ``HKCU\\...\\Run``; no Linux cria
-``~/.config/autostart/polpad.desktop`` (padrão XDG, seguido por XFCE, GNOME,
-KDE e outros). Nos dois casos com ``--minimized`` (inicia direto na
-bandeja, sem janela) e sem privilégios de administrador.
-
-O comando depende de como o aplicativo está rodando: no executável
-empacotado é o próprio executável; a partir do código-fonte é o
-``pythonw.exe`` do ambiente virtual (``python`` no Linux) com
-``-m polpad``.
+Windows: ``HKCU\\...\\Run``. Linux: ``~/.config/autostart/polpad.desktop`` (XDG).
+Pelo código-fonte o comando é ``pythonw.exe -m polpad`` do venv.
 """
 
 from __future__ import annotations
@@ -19,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-#: Nome do sistema nos textos da interface ("Iniciar com o Windows").
+#: Usado nos textos da interface ("Iniciar com o Windows").
 SYSTEM_NAME = "Windows" if sys.platform == "win32" else "sistema"
 
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -29,13 +22,13 @@ _DESKTOP_FILE = "polpad.desktop"
 
 
 def _frozen() -> bool:
-    """``True`` quando rodando a partir do executável do PyInstaller."""
+    """Rodando pelo executável do PyInstaller?"""
     return getattr(sys, "frozen", False)
 
 
 def _argv() -> list[str]:
     if _frozen():
-        # sys.executable é o próprio aplicativo; "-m polpad" não existe aqui.
+        # sys.executable já é o aplicativo.
         return [sys.executable, "--minimized"]
     python = Path(sys.executable)
     pythonw = python.with_name("pythonw.exe")
@@ -65,11 +58,8 @@ def is_enabled() -> bool:
     return False
 
 
-# ------------------------------------------------------------- Windows
-
-
 def _apply_windows(enabled: bool) -> None:
-    # Redundante para quem chama; diz ao mypy que o resto é do Windows.
+    # Redundante; diz ao mypy que o resto é só do Windows.
     if sys.platform != "win32":
         return
     import winreg
@@ -80,7 +70,6 @@ def _apply_windows(enabled: bool) -> None:
         if enabled:
             winreg.SetValueEx(key, _VALUE_NAME, 0, winreg.REG_SZ, _command())
         else:
-            # Já ausente da chave Run: desabilitar é idempotente.
             with contextlib.suppress(FileNotFoundError):
                 winreg.DeleteValue(key, _VALUE_NAME)
 
@@ -96,9 +85,6 @@ def _is_enabled_windows() -> bool:
             return True
     except FileNotFoundError:
         return False
-
-
-# --------------------------------------------------------------- Linux
 
 
 def desktop_file() -> Path:

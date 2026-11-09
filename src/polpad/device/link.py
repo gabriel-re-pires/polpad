@@ -1,14 +1,7 @@
-"""Enlace com o dispositivo físico via porta serial (USB CDC).
+"""Enlace com o macropad pela porta serial (USB CDC).
 
-``SerialLink`` roda uma thread própria que:
-  1. localiza a porta do macropad (preferindo o VID da Espressif ou a
-     porta fixada nas configurações);
-  2. faz o handshake ``ping``/``hello``;
-  3. lê mensagens continuamente e as repassa aos callbacks;
-  4. reconecta automaticamente se o cabo for removido.
-
-Os callbacks são invocados na thread do enlace — a camada de UI os
-converte em sinais Qt (ver ``ui.bridge``).
+``SerialLink`` acha a porta, faz o handshake, lê mensagens e reconecta numa
+thread própria; os callbacks rodam nela (a UI os converte em sinais Qt).
 """
 
 from __future__ import annotations
@@ -43,10 +36,8 @@ class DeviceLink(Protocol):
 def _has_hardware(port: Any) -> bool:
     """Se há um dispositivo de verdade por trás da porta.
 
-    O Linux cria dezenas de ``/dev/ttyS*`` para UARTs que a máquina não
-    tem, e o pyserial lista todas, com ``hwid`` "n/a" e sem VID. No
-    Windows só aparecem portas existentes, e as que não são USB trazem o
-    identificador do barramento (``ACPI\\PNP0501\\1``) no ``hwid``.
+    O Linux lista dezenas de ``/dev/ttyS*`` inexistentes, com ``hwid`` "n/a" e
+    sem VID; no Windows as portas não USB trazem o barramento no ``hwid``.
     """
     return port.vid is not None or (port.hwid or "n/a") != "n/a"
 
@@ -86,10 +77,8 @@ def permission_hint() -> str:
 def _read_available(ser: Any) -> bytes:
     """Lê o que já chegou, sem esperar juntar mais.
 
-    ``ser.read(n)`` só volta antes do timeout quando já há ``n`` bytes; uma
-    tecla tem ~30 bytes, então pedir um bloco fixo fazia cada aperto
-    esperar o timeout inteiro da porta. Com nada no buffer, ``read(1)``
-    volta assim que o primeiro byte chega.
+    ``ser.read(n)`` só volta antes do timeout com ``n`` bytes; um bloco fixo
+    fazia cada tecla (~30 bytes) esperar o timeout inteiro.
     """
     return ser.read(ser.in_waiting or 1)
 
@@ -97,8 +86,7 @@ def _read_available(ser: Any) -> bytes:
 class SerialLink:
     RECONNECT_DELAY_S = 2.0
     HANDSHAKE_TIMEOUT_S = 2.0
-    # Ping periódico: mantém o firmware ciente de que o host está presente
-    # (no modo híbrido, o firmware desativa o fallback BLE enquanto isso).
+    # Avisa o firmware que o host está presente (no modo híbrido, segura o BLE).
     HEARTBEAT_S = 3.0
 
     def __init__(
@@ -110,22 +98,17 @@ class SerialLink:
     ) -> None:
         self._on_message = on_message
         self._on_state = on_state
-        # Chamado (uma vez por porta) quando o sistema nega acesso à porta.
         self._on_denied = on_denied
         self.preferred_port = preferred_port
         self._serial: serial.Serial | None = None
         self._thread: threading.Thread | None = None
         self._running = False
         self._write_lock = threading.Lock()
-        # Portas que responderam algo que não é o macropad. Guardá-las evita
-        # insistir para sempre na mesma quando há outros dispositivos USB.
+        # Portas que não são o macropad, para não insistir sempre na mesma.
         self._rejected: set[str] = set()
-        # Se a conexão atual já foi anunciada à interface como ativa.
         self._announced = False
-        # Portas sem permissão de acesso já avisadas no log (uma vez cada).
+        # Portas sem permissão já avisadas (uma vez cada).
         self._denied: set[str] = set()
-
-    # ------------------------------------------------------------- ciclo
 
     def start(self) -> None:
         if self._running:
@@ -155,8 +138,6 @@ class SerialLink:
         except (serial.SerialException, OSError):
             self._close()
 
-    # ----------------------------------------------------------- interno
-
     def _run(self) -> None:
         while self._running:
             port = self._find_port()
@@ -172,26 +153,20 @@ class SerialLink:
         try:
             self._connect_and_read(port)
         except (serial.SerialException, OSError) as exc:
-            # No Linux, quem não está no grupo dono da porta recebe EACCES.
-            # A porta não vai para ``_rejected``: liberado o acesso, a
-            # próxima tentativa já conecta.
+            # EACCES no Linux: fora do grupo da porta. Não vai para ``_rejected``
+            # para conectar assim que o acesso for liberado.
             if exc.errno == errno.EACCES:
                 self._report_denied(port)
         finally:
             self._close()
-            # Só avisa a queda de uma conexão que chegou a ser anunciada;
-            # uma porta que falhou no handshake nunca "conectou".
+            # Falha no handshake não conta como conexão caída.
             if self._announced:
                 self._announced = False
                 log.info("conexão com o macropad em %s encerrada", port)
                 self._on_state(False, port)
 
     def _report_denied(self, port: str) -> None:
-        """Avisa (uma vez por porta) que o sistema negou acesso a ela.
-
-        Só o log não bastava: a interface seguia em "Procurando o
-        macropad…" com ele ligado, e o usuário ia testar porta por porta.
-        """
+        """Avisa (uma vez por porta), no log e na interface, que o acesso foi negado."""
         if port in self._denied:
             return
         self._denied.add(port)
@@ -214,20 +189,14 @@ class SerialLink:
         return espressif + outras
 
     def _find_port(self) -> str | None:
-        """Escolhe a próxima porta a tentar, alternando entre as candidatas.
-
-        Sem o rodízio, uma primeira porta que não fosse o macropad (outro
-        conversor USB-serial, por exemplo) seria tentada indefinidamente e
-        o dispositivo real nunca seria encontrado.
-        """
+        """Próxima porta, em rodízio para não travar numa que não é o macropad."""
         candidatos = self._candidates()
         if not candidatos:
             self._rejected.clear()
             return None
         pendentes = [c for c in candidatos if c not in self._rejected]
         if not pendentes:
-            # Todas já falharam: recomeça a rodada (o macropad pode ter sido
-            # ligado depois, ou o firmware ainda estava inicializando).
+            # Todas falharam: recomeça (o firmware podia estar inicializando).
             self._rejected.clear()
             pendentes = candidatos
         return pendentes[0]
@@ -246,8 +215,7 @@ class SerialLink:
         self._announced = True
         log.info("macropad conectado em %s", port)
         self._on_state(True, port)
-        # O que chegou junto com a resposta do handshake (tipicamente o
-        # ``hello`` colado ao ``pong``) é entregue, não descartado.
+        # Entrega o que veio junto com o handshake (tipicamente o ``hello``).
         for early in pending:
             self._on_message(early)
         last_ping = time.monotonic()
@@ -269,17 +237,12 @@ class SerialLink:
     def _handshake(
         self, ser: serial.Serial
     ) -> tuple[bool, bytes, list[dict[str, Any]]]:
-        """Confirma que a porta pertence ao macropad antes de anunciá-la.
+        """Confirma que a porta é do macropad antes de anunciá-la.
 
         Devolve ``(reconhecido, resto do buffer, mensagens já decodificadas)``.
-        O firmware responde ao ``ping`` com ``pong``; se acabou de nos ver,
-        manda um ``hello`` logo antes — frequentemente no mesmo pacote.
-        Descartar esse ``hello`` perderia a primeira atualização do display.
-
-        Só o ``pong`` reconhece a porta. Um ``hello`` antigo (o do boot)
-        pode estar represado no buffer junto com teclas apertadas enquanto
-        o aplicativo estava fechado; se ele valesse como resposta, essas
-        teclas seriam executadas agora.
+        Só o ``pong`` reconhece: um ``hello`` antigo pode vir represado com
+        teclas apertadas com o app fechado, que não devem ser executadas.
+        O ``hello`` logo antes do ``pong`` é mantido (primeira tela do display).
         """
         with self._write_lock:
             ser.write(protocol.encode(protocol.msg_ping()))
@@ -296,8 +259,6 @@ class SerialLink:
                     break
                 continue
             buffer += chunk
-            # Só linhas completas: decodificar fragmentos daria resultados
-            # imprevisíveis a cada leitura parcial.
             while b"\n" in buffer:
                 line, buffer = buffer.split(b"\n", 1)
                 decoded = protocol.decode(line)
@@ -306,10 +267,7 @@ class SerialLink:
                 if recognized:
                     pending.append(decoded)
                     continue
-                # Eventos de tecla que chegam ANTES da resposta ao ping
-                # ficaram represados no firmware enquanto ninguém lia a
-                # porta (o cabo estava ligado, o aplicativo não): são
-                # antigos e executá-los agora dispararia ações fantasmas.
+                # Teclas antes do ``pong`` são antigas (represadas): descarta.
                 kind = decoded.get("t")
                 if kind == "pong":
                     recognized = True
@@ -322,8 +280,6 @@ class SerialLink:
                     # Algo veio entre o hello e o pong: o hello era antigo.
                     hello = None
             if recognized and not buffer:
-                # Resposta completa já em mãos: não há por que esperar o
-                # resto do timeout.
                 break
         return recognized, buffer, pending
 
@@ -333,7 +289,5 @@ class SerialLink:
         if ser is not None:
             try:
                 ser.close()
-            except Exception:  # fechar é best-effort
-                # O cabo já pode ter sido removido; o driver lança tipos
-                # variados nesse caso e o enlace vai reconectar de todo jeito.
+            except Exception:  # cabo removido: o driver lança tipos variados
                 log.debug("falha ao fechar a porta serial", exc_info=True)

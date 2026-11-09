@@ -2,11 +2,8 @@
 
     .venv/bin/python tools/conferir_versao.py v0.5.0
 
-O workflow de release roda isto antes de gerar os executáveis: uma tag
-v0.5.0 com o código ainda em 0.4.0 publicaria um aplicativo que se diz
-0.4.0. A versão aparece em dois lugares — ``pyproject.toml`` e
-``src/polpad/__init__.py`` (a que o aplicativo mostra) — e os dois
-precisam concordar com a tag.
+Roda no workflow antes de gerar os executáveis: ``pyproject.toml`` e
+``src/polpad/__init__.py`` precisam concordar com a tag.
 """
 
 from __future__ import annotations

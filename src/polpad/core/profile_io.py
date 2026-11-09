@@ -1,16 +1,9 @@
-"""Formato de arquivo para compartilhar perfis entre máquinas.
+"""Arquivo para compartilhar perfis entre máquinas.
 
-Um perfil exportado é um JSON legível com um marcador de formato, o
-perfil em si e — quando houver — o ícone embutido em base64. O ícone
-precisa viajar junto: ``Profile.icon_path`` aponta para um arquivo na
-pasta de dados de quem exportou, que não existe na máquina de destino.
-
-O ``id`` não é exportado: quem importa recebe um perfil novo, para que
-importar duas vezes não sobrescreva nada nem gere ids repetidos.
-
-Segurança: um perfil pode conter ações que executam comandos de shell ou
-abrem programas. Quem importa precisa saber disso antes de aceitar — ver
-:func:`sensitive_actions` e a confirmação na interface.
+JSON com marcador de formato, o perfil e o ícone em base64 (o ``icon_path``
+não existe no destino). O ``id`` não vai: importar duas vezes não sobrescreve.
+Ações que executam algo são listadas por :func:`sensitive_actions` para a
+confirmação na interface.
 """
 
 from __future__ import annotations
@@ -26,8 +19,7 @@ from .models import Profile
 FORMAT = "macropad-profile"
 VERSION = 1
 
-# Tipos de ação que executam algo escolhido por quem criou o perfil (o
-# webhook manda uma requisição para um endereço escolhido por ele).
+# Executam algo escolhido por quem criou o perfil (o webhook, um endereço).
 SENSITIVE_TYPES = ("command", "launch", "webhook")
 
 # Limite defensivo para o ícone embutido (o display tem 128x64).
@@ -117,8 +109,7 @@ def to_json(profile: Profile, icon_path: str | None = None) -> str:
 def from_json(texto: str | bytes) -> ImportedProfile:
     """Lê e valida um arquivo de perfil. Lança :class:`ProfileFileError`.
 
-    Aceita o conteúdo já decodificado ou os bytes do arquivo; nos dois
-    casos, um BOM no início (Bloco de Notas) é ignorado.
+    Aceita texto ou bytes; um BOM no início (Bloco de Notas) é ignorado.
     """
     if isinstance(texto, bytes):
         try:
@@ -146,7 +137,7 @@ def from_json(texto: str | bytes) -> ImportedProfile:
     nome = bruto.get("name")
     if not isinstance(nome, str) or not nome.strip():
         raise ProfileFileError("o perfil não tem um nome válido")
-    # Id novo: importar duas vezes gera dois perfis, sem sobrescrever nada.
+    # Id novo: importar duas vezes gera dois perfis.
     bruto = {**bruto, "id": ""}
     try:
         profile = Profile.from_dict(bruto)
@@ -178,7 +169,6 @@ def _icon_from_document(documento: dict[str, Any]) -> tuple[bytes | None, str]:
 
     suffix = str(icone.get("suffix") or ".png").lower()
     if suffix not in Store.ICON_SUFFIXES:
-        # Um ".exe" não pode ir parar na pasta de dados; e bytes que não
-        # são de imagem não viram ícone só por trocar a extensão.
+        # Um ".exe" não pode ir parar na pasta de dados.
         return None, ".png"
     return bruto, suffix

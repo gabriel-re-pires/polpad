@@ -1,15 +1,10 @@
-"""Integração com o Home Assistant via API REST.
+"""Home Assistant via API REST, com token de longa duração.
 
-O Home Assistant expõe uma API REST local autenticada por token de longa
-duração (Perfil do usuário -> Segurança -> Tokens de acesso de longa
-duração). Chamar um serviço é um simples POST:
+Chamar um serviço:
 
     POST {base_url}/api/services/{domain}/{service}
     Authorization: Bearer <token>
     {"entity_id": "light.sala"}
-
-Isso permite associar teclas do macropad a qualquer automação da casa
-(luzes, tomadas, cenas, scripts...).
 """
 
 from __future__ import annotations

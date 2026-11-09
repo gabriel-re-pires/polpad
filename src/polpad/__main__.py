@@ -33,9 +33,8 @@ def main() -> int:
     from .update import setup_lock
 
     if setup_lock.setup_running():
-        # Os arquivos estão sendo trocados; o instalador reabre o Polpad
-        # no fim. Sai já, sem janela: um processo parado aqui prenderia o
-        # Polpad.exe que o instalador precisa substituir.
+        # O instalador está trocando os arquivos e reabre o Polpad no fim;
+        # ficar aberto aqui prenderia o Polpad.exe que ele precisa substituir.
         return 0
 
     from PySide6.QtCore import QTimer
@@ -58,13 +57,12 @@ def main() -> int:
     )
 
     start_minimized = "--minimized" in sys.argv
-    # Reaberto pelo próprio Polpad depois de uma troca de versão: a
-    # instância antiga pode levar alguns instantes para sair.
+    # Reaberto após troca de versão: a instância antiga pode demorar a sair.
     after_update = "--apos-atualizacao" in sys.argv
     frozen = bool(getattr(sys, "frozen", False))
 
-    # Liga a janela ao polpad.desktop instalado (ícone no painel/Wayland).
-    # Antes de criar o QApplication, que já se registra no portal com ele.
+    # Liga a janela ao polpad.desktop (ícone no Wayland); tem de vir antes do
+    # QApplication, que se registra no portal com esse nome.
     QApplication.setDesktopFileName("polpad")
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName(APP_NAME)
@@ -73,8 +71,7 @@ def main() -> int:
     # Fechar a janela minimiza para a bandeja; sair de verdade é pelo menu.
     qt_app.setQuitOnLastWindowClosed(False)
 
-    # Duas instâncias disputariam a porta serial e a bandeja: a segunda
-    # apenas pede à primeira que apareça e encerra.
+    # A segunda instância só pede à primeira que apareça e encerra.
     instance = SingleInstance()
     if not instance.try_acquire(wait_s=5.0 if after_update else 0.0):
         logging.getLogger(__name__).info(
@@ -90,8 +87,8 @@ def main() -> int:
         return 0
 
     core = MacropadApp()
-    # Escolhas do instalador (iniciar com o Windows, aviso de versão nova):
-    # aplicadas antes da janela, que grava a inicialização automática.
+    # Escolhas do instalador: antes da janela, que grava a inicialização
+    # automática.
     if installer_options.apply(core.store.data_dir, core.store.settings):
         core.store.save()
     window = MainWindow(core)
@@ -108,7 +105,7 @@ def main() -> int:
         window.show()
     updates.show_startup_result(result)
     if frozen:
-        # Rodando pelo código-fonte o atualizador fica desligado.
+        # Pelo código-fonte o atualizador fica desligado.
         updates.start()
         QTimer.singleShot(0, updates.maybe_offer_linux_install)
     return qt_app.exec()

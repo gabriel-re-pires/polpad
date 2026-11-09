@@ -3,33 +3,17 @@
     .venv\\Scripts\\python tools\\build_exe.py      (Windows)
     .venv/bin/python tools/build_exe.py           (Linux)
 
-Produz ``dist/windows/Polpad/Polpad.exe`` (uma pasta) no Windows e
-``dist/linux/Polpad``
-(arquivo único) no Linux, sem console e sem precisar de Python. No
-Windows, ``--instalador`` gera também
-``dist/windows/Polpad-Windows-Instalador.exe`` com o Inno
-Setup 6 (``tools/polpad.iss``), que é o que se publica. No Linux,
-``dist/linux/Polpad --instalar-no-menu`` coloca o executável no menu de
-aplicativos, com o ícone.
+Produz ``dist/windows/Polpad/Polpad.exe`` (pasta) no Windows e
+``dist/linux/Polpad`` (arquivo único) no Linux. No Windows, ``--instalador``
+gera também ``dist/windows/Polpad-Windows-Instalador.exe`` com o Inno Setup 6
+(``tools/polpad.iss``), que é o que se publica. No Linux,
+``dist/linux/Polpad --instalar-no-menu`` põe o executável no menu.
 
-Com o aplicativo aberto, o Windows não deixa sobrescrever o ``.exe`` em
-execução e o PyInstaller falha com "Acesso negado". Feche o aplicativo
-(menu da bandeja → Sair) ou gere em outra pasta::
+Com o aplicativo aberto, o Windows não deixa sobrescrever o ``.exe`` e o
+PyInstaller falha com "Acesso negado". Feche-o (bandeja → Sair) ou gere em
+outra pasta::
 
     .venv\\Scripts\\python tools\\build_exe.py --destino build\\teste
-
-Detalhes que o empacotamento exige:
-
-* ``keyring`` e ``pynput`` escolhem seu backend em tempo de execução,
-  importando módulos que o PyInstaller não vê na análise estática; por
-  isso são coletados por inteiro (no Linux também o ``Xlib``, que o
-  backend xorg do pynput e a detecção do app em foco usam). No Linux o
-  backend xorg do pynput vai também por ``--hidden-import``: coletá-lo
-  exige importar o pynput, o que sem servidor X falha.
-* O ícone (``polvo-roxo.ico``) é copiado antes para build/ e os PNGs
-  da janela vão junto com ``--add-data`` (ver ``make_icon.py``). O ícone
-  embutido no arquivo só existe no Windows; no Linux quem mostra o ícone
-  é o ``.desktop`` instalado.
 """
 
 from __future__ import annotations
@@ -105,10 +89,8 @@ def main() -> int:
         por_plataforma += ["--collect-submodules", "winrt"]
     else:
         por_plataforma += ["--collect-submodules", "Xlib"]
-        # O --collect-submodules do pynput precisa importá-lo, e no Linux
-        # importar o pynput exige um servidor X. Sem tela (CI, SSH) a coleta
-        # falha com só um aviso e o executável sai sem o backend xorg, que
-        # fecha ao abrir. --hidden-import analisa sem importar.
+        # Coletar o pynput exige importá-lo, o que sem servidor X (CI) falha
+        # só com aviso e o executável fecha ao abrir. --hidden-import não importa.
         for modulo in _PYNPUT_XORG:
             por_plataforma += ["--hidden-import", modulo]
 
@@ -119,23 +101,20 @@ def main() -> int:
             "PyInstaller",
             "--noconfirm",
             "--clean",
-            # Windows: pasta, instalada pelo Inno Setup (abre mais rápido e
-            # gera menos falsos alarmes de antivírus). Linux: arquivo único,
-            # trocado inteiro pelo atualizador.
+            # Windows: pasta (abre mais rápido, menos alarme de antivírus).
+            # Linux: arquivo único, trocado inteiro pelo atualizador.
             "--onedir" if WINDOWS else "--onefile",
             "--windowed",
             "--name",
             NOME,
             "--distpath",
             str(destino),
-            # Intermediários e o .spec ficam em build/, não na raiz do projeto.
             "--workpath",
             str(RAIZ / "build" / "pyinstaller"),
             "--specpath",
             str(RAIZ / "build"),
             "--paths",
             str(RAIZ / "src"),
-            # Ícones do aplicativo (janela, bandeja e barra superior).
             "--add-data",
             add_assets,
             # Backends resolvidos em tempo de execução.
@@ -143,9 +122,7 @@ def main() -> int:
             "keyring.backends",
             "--collect-submodules",
             "pynput",
-            # O esptool resolve a classe do chip pelo nome e lê o stub de
-            # gravação de arquivos JSON de dados — nada disso aparece na
-            # análise estática do PyInstaller.
+            # O esptool acha o chip pelo nome e lê o stub de arquivos JSON.
             "--collect-submodules",
             "esptool",
             "--collect-data",
@@ -197,10 +174,7 @@ def main() -> int:
 
 
 def _licenca() -> Path:
-    """Resumo em português seguido do texto oficial da GPL v3.
-
-    UTF-8 com BOM: é como o Inno Setup reconhece o texto acentuado.
-    """
+    """Resumo em português e a GPL v3, em UTF-8 com BOM (exigência do Inno Setup)."""
     resumo = (RAIZ / "tools" / "licenca-resumo.txt").read_text(encoding="utf-8")
     gpl = (RAIZ / "LICENSE").read_text(encoding="utf-8")
     destino = RAIZ / "build" / "licenca.txt"
@@ -236,13 +210,10 @@ def _painel(largura: int, altura: int):
 
 
 def _imagens_do_assistente() -> tuple[str, str, str]:
-    """Imagens do instalador, em 100% e 200% de escala.
+    """Imagens BMP de 24 bits do instalador, em 100% e 200%.
 
-    A grande (164x314) fica à esquerda nas páginas de boas-vindas e de
-    conclusão; a pequena (55x55) fica no canto das outras páginas, sobre o
-    branco do cabeçalho. A de desinstalar (150x260, só em 200%: a tela a
-    estica) vai junto do programa, porque o desinstalador não tem as
-    imagens do instalador. O Inno Setup lê BMP de 24 bits.
+    Grande 164x314 (boas-vindas e conclusão), pequena 55x55 (cabeçalho) e a do
+    desinstalador, 150x260 só em 200%, que vai junto do programa.
     """
     from PIL import Image
 

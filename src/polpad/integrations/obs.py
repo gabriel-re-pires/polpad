@@ -1,16 +1,6 @@
-"""Integração com o OBS Studio via obs-websocket (protocolo v5).
+"""OBS Studio via obs-websocket v5 (embutido no OBS 28+, porta 4455).
 
-O OBS 28+ traz o servidor WebSocket embutido (Ferramentas -> Configurações
-do WebSocket, porta padrão 4455). A conexão é criada sob demanda no
-primeiro uso e reutilizada; se cair (OBS fechado/reaberto), é refeita na
-próxima ação.
-
-Operações oferecidas na interface:
-    scene         -> SetCurrentProgramScene {sceneName}
-    toggle_mute   -> ToggleInputMute {inputName}
-    toggle_record -> ToggleRecord
-    toggle_stream -> ToggleStream
-    raw           -> requisição arbitrária (tipo + dados JSON)
+A conexão é criada no primeiro uso, reutilizada e refeita se cair.
 """
 
 from __future__ import annotations
@@ -68,8 +58,6 @@ def _reset_client() -> None:
             if _client is not None:
                 _client.disconnect()
         except Exception:  # desconectar é best-effort
-            # O OBS pode já ter fechado; o cliente será recriado no
-            # próximo uso de qualquer forma.
             log.debug("falha ao desconectar do OBS", exc_info=True)
         _client = None
 
@@ -87,8 +75,8 @@ def send(
         client.send(request, data or None)
     except Exception as exc:
         if not _connection_lost(exc):
-            # Timeout ou recusa: o pedido já chegou ao OBS e reenviá-lo
-            # o executaria duas vezes (a gravação liga e desliga).
+            # Timeout ou recusa: reenviar executaria duas vezes (a gravação
+            # liga e desliga).
             raise ActionError(f"OBS recusou {request}: {exc}") from exc
         # Conexão caiu (OBS reiniciado): tenta uma única vez de novo.
         _reset_client()
@@ -107,8 +95,7 @@ def _connection_lost(exc: Exception) -> bool:
 
     if isinstance(exc, TimeoutError):  # é OSError, mas o pedido pode ter saído
         return False
-    # JSONDecodeError: o OBS fechou a conexão ao sair e o recv devolve o
-    # quadro de fechamento como texto vazio.
+    # JSONDecodeError: ao sair, o OBS fecha e o recv devolve texto vazio.
     return isinstance(
         exc, (OSError, WebSocketConnectionClosedException, json.JSONDecodeError)
     )

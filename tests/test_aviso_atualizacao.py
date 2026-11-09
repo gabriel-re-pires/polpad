@@ -129,7 +129,6 @@ class VisualTest(unittest.TestCase):
         self.assertIs(self.aviso.details_link.parent(), self.aviso.action_button.parent())
         self.assertTrue(link.top() <= botao.center().y() <= link.bottom() + 8)
         self.assertGreater(botao.left(), link.right())
-        # Encostado à direita da coluna de textos.
         coluna = self.aviso.title.geometry()
         self.assertEqual(botao.right(), coluna.right())
 

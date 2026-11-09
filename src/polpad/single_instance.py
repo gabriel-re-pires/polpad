@@ -1,10 +1,7 @@
-"""Garante uma única instância do aplicativo em execução.
+"""Instância única via socket local (named pipe no Windows).
 
-Duas instâncias disputariam a mesma porta serial e colocariam dois ícones
-na bandeja. Em vez de simplesmente recusar a segunda, usamos um socket
-local (named pipe no Windows): a instância nova avisa a que já roda e
-sai, e a original traz sua janela para frente — o comportamento esperado
-de quem clica no atalho enquanto o aplicativo está oculto na bandeja.
+Duas instâncias disputariam a porta serial e a bandeja; a nova avisa a que já
+roda, que traz a janela para frente, e sai.
 """
 
 from __future__ import annotations
@@ -33,12 +30,8 @@ class SingleInstance(QObject):
     def try_acquire(self, wait_s: float = 0.0) -> bool:
         """``True`` se esta é a única instância; ``False`` se já havia outra.
 
-        Quando devolve ``False``, a instância que já roda foi avisada e
-        deve mostrar sua janela — o chamador só precisa encerrar.
-
-        ``wait_s`` é para o Polpad reaberto depois de uma atualização: a
-        instância antiga pode levar alguns instantes para sair, e a nova
-        espera por ela em vez de se encerrar.
+        No ``False`` a outra já foi avisada. ``wait_s``: após uma atualização,
+        espera a instância antiga sair.
         """
         deadline = time.monotonic() + wait_s
         while True:
@@ -55,15 +48,13 @@ class SingleInstance(QObject):
             QCoreApplication.processEvents()
             time.sleep(0.2)
 
-        # Ninguém atendeu. Pode ser um socket órfão de um encerramento
-        # anormal: removê-lo é seguro justamente porque a conexão falhou.
+        # Ninguém atendeu: remover um socket órfão é seguro.
         QLocalServer.removeServer(SERVER_NAME)
 
         server = QLocalServer(self)
         server.newConnection.connect(self._on_new_connection)
         if not server.listen(SERVER_NAME):
-            # Sem o socket o aplicativo ainda funciona; apenas perde a
-            # proteção contra instâncias duplicadas.
+            # Segue sem proteção contra instâncias duplicadas.
             log.warning(
                 "não foi possível escutar em %s: %s",
                 SERVER_NAME,

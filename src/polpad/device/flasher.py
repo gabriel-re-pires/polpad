@@ -1,25 +1,9 @@
-"""Gravação do firmware no ESP32-C3 pela própria interface do aplicativo.
+"""Gravação do firmware no ESP32-C3 via ``esptool``, sem Qt.
 
-Envolve o ``esptool`` (a mesma ferramenta que a Arduino IDE usa por baixo)
-para que o usuário não precise de nenhuma instalação além do próprio
-configurador: escolhida a porta e a imagem, o firmware é escrito e o chip
-reiniciado.
-
-Duas decisões de projeto valem registro:
-
-* **Imagem completa em 0x0.** O binário publicado no release é a fusão de
-  bootloader + tabela de partições + aplicação (ver ``tools/merge_firmware.py``),
-  gravada em um único endereço. Isso evita depender de três arquivos
-  soltos e do layout de partições escolhido na compilação. A exportação
-  crua da Arduino IDE (``*.ino.bin``) contém apenas a aplicação e vai para
-  0x10000 — :func:`guess_offset` distingue os dois casos pelo nome.
-* **Progresso via logger do esptool.** O esptool 5 expõe ``TemplateLogger``
-  como ponto de extensão oficial; trocamos o logger global por um que
-  repassa linhas e percentual aos callbacks. A troca é protegida por um
-  lock e desfeita no ``finally`` — nada além desta função a enxerga.
-
-O módulo não conhece Qt: a camada de UI roda :func:`flash` em uma thread e
-converte os callbacks em sinais (ver :mod:`polpad.ui.flash_dialog`).
+O release publica a imagem completa (bootloader + partições + aplicação, ver
+``tools/merge_firmware.py``), gravada em 0x0; o ``*.ino.bin`` da Arduino IDE
+traz só a aplicação e vai para 0x10000. O progresso vem trocando o logger
+global do esptool, sob lock e desfeito no ``finally``.
 """
 
 from __future__ import annotations
@@ -35,8 +19,7 @@ from typing import Any, ClassVar
 log = logging.getLogger(__name__)
 
 CHIP = "esp32c3"
-# 460800 é o compromisso usual: bem mais rápido que 115200 e ainda estável
-# nos conversores USB-serial baratos. O USB nativo do C3 ignora o valor.
+# Rápido e ainda estável em conversores USB-serial baratos; o USB nativo ignora.
 FLASH_BAUD = 460800
 
 #: Imagem completa (bootloader + partições + aplicação).
@@ -81,23 +64,12 @@ class FirmwareImage:
 
 
 def guess_offset(path: Path | str) -> int:
-    """Deduz o endereço de gravação pelo nome do arquivo.
-
-    A Arduino IDE nomeia a exportação da aplicação como
-    ``macropad_firmware.ino.bin``; qualquer outro nome é tratado como
-    imagem completa. É uma heurística, mas erra para o lado seguro: uma
-    imagem completa gravada em 0x10000 simplesmente não daria boot, e o
-    diálogo mostra o endereço escolhido antes de gravar.
-    """
+    """Endereço pelo nome: ``*.ino.bin`` é só a aplicação; o resto, imagem completa."""
     return APP_OFFSET if Path(path).name.lower().endswith(".ino.bin") else MERGED_OFFSET
 
 
 def validate(image: FirmwareImage) -> None:
-    """Recusa arquivos que claramente não são um firmware do ESP32.
-
-    Gravar um arquivo errado deixa o macropad inerte até uma nova
-    gravação; conferir o cabeçalho custa nada e evita o susto.
-    """
+    """Recusa arquivos que claramente não são um firmware do ESP32."""
     path = image.path
     try:
         size = path.stat().st_size
@@ -131,14 +103,9 @@ def flash(
     cancel: threading.Event | None = None,
     baud: int = FLASH_BAUD,
 ) -> None:
-    """Grava ``image`` no macropad ligado em ``port``.
+    """Grava ``image`` no macropad em ``port``; levanta :class:`FlashError` em falha.
 
-    ``on_progress`` recebe o percentual (0–100) e ``on_log`` cada linha de
-    saída do esptool. Levanta :class:`FlashError` em qualquer falha — o
-    chamador só precisa mostrar a mensagem.
-
-    A porta precisa estar livre: o enlace serial do aplicativo deve ser
-    pausado antes (ver ``MacropadApp.pause_link``).
+    A porta precisa estar livre (ver ``MacropadApp.pause_link``).
     """
     validate(image)
 
@@ -165,9 +132,6 @@ def flash(
     log.info("gravação concluída em %s", port)
 
 
-# --------------------------------------------------------------------- interno
-
-
 def _run_esptool(
     argv: list[str],
     on_log: Callable[[str], None] | None,
@@ -176,9 +140,7 @@ def _run_esptool(
 ) -> None:
     """Executa o esptool no processo atual, com o logger redirecionado.
 
-    Chamar em processo (em vez de ``subprocess``) é o que permite a mesma
-    função funcionar dentro do executável do PyInstaller, onde não existe
-    um interpretador Python para invocar.
+    Em processo porque no executável do PyInstaller não há Python para invocar.
     """
     try:
         import esptool
@@ -210,17 +172,9 @@ def _run_esptool(
 def _snapshot_logger(esptool_log: Any) -> Callable[[], None]:
     """Guarda o logger ativo do esptool e devolve a função que o restaura.
 
-    O mecanismo mudou entre versões do esptool:
-
-    * **5.0 a 5.x antigas:** ``log`` é a própria instância de
-      ``EsptoolLogger`` e ``set_logger`` troca a sua *classe*; restaurar é
-      devolver a classe original.
-    * **Com esp-pylib (5.6+):** ``log`` é um *proxy* que lê
-      ``EspLog.instance``, e ``set_logger`` troca essa instância por um
-      ``_LegacyLoggerAdapter`` — que não tem ``set_logger``. Restaurar a
-      classe do proxy não desfaz nada, e a gravação seguinte falhava com
-      ``'_LegacyLoggerAdapter' object has no attribute 'set_logger'``.
-      Aqui o que se guarda e devolve é a instância.
+    Até o 5.x antigo, ``set_logger`` troca a *classe* de ``log``. Com esp-pylib
+    (5.6+), ``log`` é um proxy de ``EspLog.instance`` e ``set_logger`` troca a
+    instância por um ``_LegacyLoggerAdapter``; aí é a instância que se restaura.
     """
     try:
         from esp_pylib.logger import EspLog
@@ -254,9 +208,8 @@ def _describe(exc: BaseException) -> str:
             "BOOT, toque em RESET, solte BOOT e grave de novo.\n\n"
             f"Detalhe: {text}"
         )
-    # Linux: a porta existe, mas o usuário não está no grupo dono dela. Vem
-    # antes do caso ambíguo abaixo porque o esptool embrulha este erro na
-    # mesma frase "the port is busy or doesn't exist".
+    # Linux sem acesso ao grupo da porta. Vem antes porque o esptool embrulha
+    # este erro na mesma frase "the port is busy or doesn't exist".
     if "permission denied" in lowered:
         from .link import permission_hint
 
@@ -264,8 +217,7 @@ def _describe(exc: BaseException) -> str:
             f"Sem permissão para abrir a porta serial: {permission_hint()}."
             f"\n\nDetalhe: {text}"
         )
-    # O esptool junta os dois casos em "the port is busy or doesn't exist",
-    # e da mensagem sozinha não dá para separá-los: a dica cobre os dois.
+    # Pela mensagem do esptool não dá para separar os dois casos.
     ocupada = "busy" in lowered or "access is denied" in lowered
     inexistente = "could not open" in lowered or "doesn't exist" in lowered
     if ocupada and inexistente:
@@ -300,12 +252,8 @@ _logger_class: type[Any] | None = None
 def _callback_logger_class() -> type[Any]:
     """Cria (uma vez) a subclasse de ``TemplateLogger`` que alimenta a UI.
 
-    A classe é montada aqui, e não no topo do módulo, para que importar
-    ``flasher`` não puxe o esptool junto — o aplicativo abre sem ele e só
-    paga esse custo quando o usuário decide gravar.
-
-    ``EsptoolLogger.set_logger`` substitui apenas a *classe* do logger
-    global, então os callbacks moram em atributos de classe.
+    Montada aqui para não importar o esptool junto com o módulo. Os callbacks
+    são atributos de classe porque ``set_logger`` troca só a classe do logger.
     """
     global _logger_class
     if _logger_class is not None:
@@ -373,8 +321,7 @@ def _callback_logger_class() -> type[Any]:
 
         @classmethod
         def _check_cancel(cls) -> None:
-            # Interromper aqui é o único ponto de parada possível: o esptool
-            # não expõe cancelamento, mas chama o logger a cada bloco escrito.
+            # O esptool não expõe cancelamento, mas chama o logger a cada bloco.
             event = cls.cancel
             if event is not None and event.is_set():
                 raise FlashCancelledError("Gravação cancelada.")

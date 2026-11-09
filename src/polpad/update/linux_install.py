@@ -1,12 +1,6 @@
-"""Põe o Polpad no menu de aplicativos do Linux (só para o usuário atual).
+"""Põe o Polpad no menu de aplicativos do Linux, só na pasta pessoal (sem sudo).
 
-Copia o executável para ``~/.local/bin/polpad``, o ícone do polvo para o
-tema ``hicolor`` e cria ``~/.local/share/applications/polpad.desktop``.
-Nada fora da pasta pessoal é tocado, então não precisa de sudo. Funciona a
-partir do executável baixado: os ícones vêm de dentro do pacote.
-
-Os caminhos são calculados na chamada (``HOME``/``XDG_DATA_HOME`` podem
-mudar, por exemplo nos testes).
+Os caminhos são calculados na chamada: ``HOME``/``XDG_DATA_HOME`` mudam nos testes.
 """
 
 from __future__ import annotations
@@ -63,8 +57,7 @@ def install(source: Path) -> None:
     """Instala ``source`` (o executável) no menu."""
     binary = binary_path()
     binary.parent.mkdir(parents=True, exist_ok=True)
-    # Copia para um temporário e renomeia: sobrescrever direto falha com
-    # "Text file busy" se a versão anterior estiver aberta.
+    # Sobrescrever direto dá "Text file busy" se a versão anterior estiver aberta.
     tmp = binary.with_name(f".{binary.name}.novo")
     shutil.copyfile(source, tmp)
     tmp.chmod(0o755)

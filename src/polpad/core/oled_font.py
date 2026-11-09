@@ -1,9 +1,7 @@
-"""Fonte 5x7 "clássica" da Adafruit GFX, byte a byte.
+"""Fonte 5x7 clássica da Adafruit GFX (``glcdfont.c``, licença BSD).
 
-É a mesma tabela de ``glcdfont.c`` (Adafruit-GFX-Library, licença BSD), o que
-permite ao host desenhar texto **exatamente** como o firmware desenharia com
-``display.print()``: cada caractere ocupa 5 colunas de 8 bits (bit 0 = linha
-de cima) seguidas de 1 coluna em branco, em uma célula de 6x8 pixels.
+Mesma tabela do firmware: 5 colunas de 8 bits por caractere (bit 0 = linha de
+cima) mais 1 coluna em branco, em célula de 6x8.
 """
 
 from __future__ import annotations

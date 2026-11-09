@@ -1,8 +1,7 @@
-"""Testes da gravação de firmware: escolha de endereço, validação e release.
+"""Gravação de firmware: escolha de endereço, validação e release.
 
-O esptool em si não é exercitado (exigiria um ESP32 na porta); o que se
-verifica aqui é tudo o que decide *o que* será gravado — a parte em que um
-engano custa uma regravação manual do dispositivo.
+O esptool não é exercitado (exigiria um ESP32); aqui se verifica o que
+decide *o que* será gravado, onde um engano custa regravar à mão.
 """
 
 from __future__ import annotations
@@ -211,18 +210,12 @@ class VersaoTest(unittest.TestCase):
         self.assertFalse(firmware_release.is_newer("1.0.0", ""))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class VersaoDoAnexoTest(unittest.TestCase):
-    """A versão do firmware precisa vir do NOME DO ANEXO, não da tag.
+    """A versão do firmware vem do nome do anexo, não da tag.
 
-    As tags do repositório versionam o *aplicativo* (v0.2.0); o firmware
-    tem numeração própria (2.0.0). Lendo a tag, o diálogo comparava
-    "0.2.0" com o "2.0.0" que o dispositivo informa no ``hello`` e
-    concluía que o release era mais antigo — o aviso de atualização dizia
-    o contrário do certo e a mensagem de sucesso mostrava a versão errada.
+    As tags versionam o aplicativo (v0.2.0) e o firmware tem numeração
+    própria (2.0.0): lendo a tag, o aviso de atualização e a mensagem de
+    sucesso mostravam a versão errada.
     """
 
     def _release(self, tag, asset):
@@ -236,7 +229,6 @@ class VersaoDoAnexoTest(unittest.TestCase):
 
     def test_aviso_de_atualizacao_fica_correto(self):
         release = self._release("v0.2.0", "firmware-2.1.0.bin")
-        # Dispositivo com 2.0.0 deve ser avisado de que há firmware novo.
         self.assertTrue(firmware_release.is_newer(release.version, "2.0.0"))
         igual = self._release("v0.2.0", "firmware-2.0.0.bin")
         self.assertFalse(firmware_release.is_newer(igual.version, "2.0.0"))
@@ -261,3 +253,7 @@ class VersaoDoAnexoTest(unittest.TestCase):
         }
         for nome, esperado in casos.items():
             self.assertEqual(firmware_release.version_from_asset(nome), esperado, nome)
+
+
+if __name__ == "__main__":
+    unittest.main()

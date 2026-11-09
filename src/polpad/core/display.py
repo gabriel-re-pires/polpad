@@ -1,23 +1,11 @@
-"""Composição das telas exibidas no display OLED do macropad.
+"""Composição das telas do OLED, feita no host.
 
-Toda a composição acontece no host: o quadro é montado como imagem 1 bpp
-com a mesma fonte do firmware (:mod:`oled_render`) e enviado pela
-mensagem ``img``. O firmware só desenha bitmaps, o que mantém a lógica
-de apresentação em Python — testável, e idêntica no preview, no simulador
-e no hardware.
+O quadro 1 bpp usa a fonte do firmware (:mod:`oled_render`) e vai pela
+mensagem ``img``; o firmware só desenha bitmaps, então preview, simulador e
+hardware ficam idênticos.
 
-Telas (``Profile.display.mode`` — cada perfil escolhe a sua):
-
-``icone``          a imagem do perfil, ocupando a altura do display, sem
-                   texto. Perfil sem imagem mostra o nome em letras grandes.
-``personalizado``  uma tela montada com os elementos escolhidos: nome do
-                   perfil numa faixa invertida no topo, hora em letras
-                   grandes, data e um texto livre. Ao trocar de perfil, a
-                   tela do ícone aparece por um instante antes dela (ver
-                   :class:`~polpad.core.controller.Controller`).
-
-O mapa de teclas (abreviação de cada tecla na posição física) deixou de
-ir para o display: ele vive só na interface, onde cabe o rótulo inteiro.
+Modos (``Profile.display.mode``): ``icone`` (imagem do perfil, ou o nome em
+letras grandes) e ``personalizado`` (faixa com o nome, hora, data e texto livre).
 """
 
 from __future__ import annotations
@@ -37,7 +25,6 @@ from .oled_font import CELL_H
 ICON_MARGIN = 2
 ICON_AREA = (SCREEN_W, SCREEN_H - 2 * ICON_MARGIN)
 
-# Tela personalizada.
 _HEADER_H = CELL_H + 2           # faixa invertida de 10 px com o nome
 _CLOCK_SIZE = 3                  # hora em células de 18x24 px
 _GAP = 4
@@ -51,18 +38,14 @@ _MONTHS = (
 
 
 def profile_frame(profile: Profile, now: datetime | None = None) -> Image.Image:
-    """Quadro do perfil conforme o modo de exibição configurado nele."""
+    """Quadro do perfil conforme o modo de exibição dele."""
     if profile.display.mode == "personalizado":
         return custom_frame(profile, now or datetime.now())
     return icon_frame(profile)
 
 
 def icon_frame(profile: Profile) -> Image.Image:
-    """Tela do ícone: só o desenho, ocupando a altura do display.
-
-    Sem ícone (ou com um arquivo que sumiu/corrompeu), cai para o nome em
-    letras grandes — o display nunca fica em branco.
-    """
+    """Tela do ícone; sem ícone válido, cai para o nome em letras grandes."""
     if profile.icon_path:
         try:
             bitmap = icons.icon_bitmap(profile.icon_path, *ICON_AREA)
@@ -82,10 +65,9 @@ def date_text(now: datetime) -> str:
 
 
 def custom_frame(profile: Profile, now: datetime) -> Image.Image:
-    """Tela personalizada: faixa com o perfil, hora, data e texto livre.
+    """Tela personalizada: elementos empilhados e centralizados abaixo da faixa.
 
-    Os elementos ligados são empilhados e centralizados na área abaixo da
-    faixa. Sem nenhum elemento, mostra o nome do perfil.
+    Sem nenhum elemento, mostra o nome do perfil.
     """
     cfg = profile.display
     text = _ascii(cfg.text).strip()[: oled_render.TEXT_COLS]
@@ -121,9 +103,8 @@ def custom_frame(profile: Profile, now: datetime) -> Image.Image:
 def title_frame(name: str) -> Image.Image:
     """Nome do perfil centralizado, no maior tamanho em que couber.
 
-    A tela ``text`` do firmware usa sempre tamanho 2 para uma linha, o que
-    corta nomes com mais de 10 caracteres. Como aqui o host compõe o quadro,
-    nomes longos descem para o tamanho 1 e quebram em até três linhas.
+    Nomes com mais de 10 letras descem para o tamanho 1 e quebram em até três
+    linhas (a tela ``text`` do firmware os cortaria).
     """
     cols = oled_render.TEXT_COLS
     text = _ascii(name).strip() or "?"
@@ -148,8 +129,7 @@ def title_frame(name: str) -> Image.Image:
     lines = lines[:3]
     if len(lines) > 1:
         return oled_render.render_text_lines(lines)
-    # Uma linha só: render_text_lines a desenharia em tamanho 2 (o que corta
-    # acima de 10 letras), então ela vai em tamanho 1, na mesma altura.
+    # Uma linha só: render_text_lines usaria tamanho 2 e cortaria.
     frame = oled_render.new_frame()
     line_height = CELL_H + 4
     oled_render.draw_text_centered(frame, (SCREEN_H - line_height + 4) // 2, lines[0], 1)
@@ -162,10 +142,9 @@ def frame_payload(frame: Image.Image) -> str:
 
 
 def frame_from_message(message: dict[str, Any]) -> Image.Image | None:
-    """Reconstrói o quadro que o firmware exibiria para uma mensagem ``text``/``img``.
+    """Quadro que o firmware exibiria para uma mensagem ``text``/``img``.
 
-    Usado pelo preview e pelo simulador — por isso precisa reproduzir o
-    firmware com exatidão, e não apenas "parecer".
+    Usado pelo preview e pelo simulador: precisa reproduzir o firmware com exatidão.
     """
     kind = message.get("t")
     if kind == "text":

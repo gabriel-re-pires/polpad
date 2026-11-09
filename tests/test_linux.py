@@ -1,9 +1,5 @@
-"""Testes do suporte a Linux.
-
-O aplicativo nasceu no Windows; estes casos cobrem o que mudou para que
-ele funcione também no Linux (X11), onde os códigos de tecla, a
-inicialização automática e a abertura de programas seguem outras regras.
-"""
+"""Suporte a Linux (X11): códigos de tecla, inicialização automática e
+abertura de programas seguem regras diferentes das do Windows."""
 
 import contextlib
 import io
@@ -232,10 +228,6 @@ class PermissaoDaPortaTest(unittest.TestCase):
         self.assertNotIn("Monitor Serial", texto)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class InstalacaoNoMenuTest(unittest.TestCase):
     """O executável baixado se instala no menu sem o código-fonte."""
 
@@ -319,3 +311,7 @@ class OpcoesDoMenuTest(unittest.TestCase):
                 codigo = entrada._menu_command(["Polpad", "--instalar-no-menu"])
             self.assertEqual(codigo, 0)
         instalar.assert_called_once_with(Path("/opt/polpad/Polpad"))
+
+
+if __name__ == "__main__":
+    unittest.main()

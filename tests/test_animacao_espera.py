@@ -49,8 +49,7 @@ class AnimacaoTest(unittest.TestCase):
         self.assertIsNotNone(ImageChops.difference(primeiro, meio).getbbox())
 
     def test_volta_fecha_sem_pulo(self):
-        # Girar 45° volta à primeira imagem: o quadro seguinte ao último
-        # tem de ser quase igual ao primeiro.
+        # Girar 45° volta à primeira imagem: o quadro seguinte ao último ≈ o primeiro.
         seguinte = anim.quadros_em([45.0])[0]
         diferentes = ImageChops.difference(seguinte, self.quadros[0])
         acesos = sum(diferentes.histogram()[1:])
