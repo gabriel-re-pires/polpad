@@ -1,11 +1,7 @@
 """Seletor de porta que também mostra o estado da conexão.
 
-Substitui o selo "Conectado em COMx" da barra: fechado, o seletor mostra a
-porta em que o macropad está, com a mesma bolinha verde que marca o
-perfil ativo. Sem conexão, mostra a escolha (a porta ou "Busca
-automática") com um anel apagado, e a dica explica o que está acontecendo.
-
-Na lista, as portas vêm primeiro e "Busca automática" por último.
+Conectado, mostra a porta com a bolinha verde; sem conexão, a escolha (porta
+ou "Busca automática", sempre por último na lista) com um anel apagado.
 """
 
 from __future__ import annotations

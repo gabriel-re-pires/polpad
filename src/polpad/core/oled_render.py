@@ -1,15 +1,7 @@
-"""Desenho de texto 1 bpp idêntico ao da Adafruit GFX no firmware.
+"""Desenho de texto 1 bpp idêntico ao ``display.print()`` da Adafruit GFX.
 
-O firmware desenha texto com ``display.print()`` usando a fonte clássica
-5x7 da Adafruit GFX. Reproduzir aqui exatamente o mesmo algoritmo — mesma
-tabela de glifos (:mod:`oled_font`), mesma célula de 6x8, mesma escala
-inteira — garante que o preview na interface e o simulador mostrem,
-pixel a pixel, o que o display físico exibe.
-
-Também é o que permite ao host **renderizar telas inteiras** (como o mapa
-de teclas) e enviá-las ao dispositivo como imagem: o firmware só precisa
-saber desenhar bitmaps, e toda a composição fica no PC, onde é fácil de
-testar.
+Mesmo glifo, célula e escala do firmware: preview e simulador batem pixel a
+pixel com o display físico.
 """
 
 from __future__ import annotations
@@ -19,9 +11,8 @@ from PIL import Image
 from . import oled_font
 from .models import SCREEN_H, SCREEN_W
 
-# Colunas e linhas de texto disponíveis no display com a fonte em tamanho 1.
+# Colunas de texto no display com a fonte em tamanho 1.
 TEXT_COLS = SCREEN_W // oled_font.CELL_W  # 21
-TEXT_ROWS = SCREEN_H // oled_font.CELL_H  # 8
 
 
 def new_frame(fill: int = 0) -> Image.Image:
@@ -30,10 +21,9 @@ def new_frame(fill: int = 0) -> Image.Image:
 
 
 def text_width(text: str, size: int = 1) -> int:
-    """Largura em pixels como ``getTextBounds`` da GFX a calcula.
+    """Largura como ``getTextBounds`` da GFX, com o espaço após o último caractere.
 
-    A GFX inclui a coluna de espaçamento de cada caractere, inclusive do
-    último — é com essa largura que o firmware centraliza as linhas.
+    É com ela que o firmware centraliza as linhas.
     """
     return len(text) * oled_font.CELL_W * size
 
@@ -46,11 +36,9 @@ def draw_text(
     size: int = 1,
     color: int = 255,
 ) -> None:
-    """Desenha ``text`` com o canto superior esquerdo em (x, y).
+    """Equivale a ``setCursor(x, y); setTextSize(size); print(text)`` no firmware.
 
-    Equivale a ``setCursor(x, y); setTextSize(size); print(text)`` no
-    firmware. Caracteres fora do ASCII não existem na fonte e saem como
-    ``?``, como o próprio host já normaliza antes de enviar.
+    Caracteres acima de 255 saem como ``?``.
     """
     pixels = frame.load()
     if pixels is None:  # pragma: no cover — imagem recém-criada sempre carrega
@@ -92,11 +80,10 @@ def fill_rect(
 
 
 def render_text_lines(lines: list[str]) -> Image.Image:
-    """Reproduz a tela de texto do firmware (mensagem ``text``).
+    """Espelha ``showTextScreen`` do firmware (mensagem ``text``).
 
-    Espelha ``showTextScreen`` do firmware: até três linhas; uma linha só
-    sai em tamanho 2, mais de uma em tamanho 1; altura de linha
-    ``8*size + 4``; bloco centralizado verticalmente.
+    Até três linhas; uma só sai em tamanho 2, mais em tamanho 1; altura de
+    linha ``8*size + 4``; bloco centralizado verticalmente.
     """
     frame = new_frame()
     lines = [ln for ln in lines[:3] if ln is not None]

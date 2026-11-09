@@ -1,22 +1,9 @@
-"""Execução assíncrona de ações.
+"""Execução assíncrona de ações em duas vias independentes.
 
-As ações disparadas pelas teclas são enfileiradas e executadas fora da
-interface e da thread do enlace serial. Há **duas vias independentes**:
-
-``entrada``  ações que manipulam o teclado ou processos locais (atalho,
-             texto, mídia, comando, macro...). Precisam manter a ordem
-             entre si, porque disputam o foco do teclado.
-``rede``     ações que falam com serviços externos (webhook, Home
-             Assistant, OBS). Podem levar segundos até estourar o timeout
-             e, numa via única, atrasariam todas as teclas seguintes.
-
-Uma macro executa seus passos em sequência na via de entrada, mesmo que
-inclua passos de rede — a sequencialidade é o próprio sentido da macro.
-
-As filas são limitadas: se o usuário martelar teclas enquanto algo está
-travado, é melhor descartar com aviso do que acumular um lote que
-dispararia todo de uma vez depois. Erros são reportados por callback
-para exibição na interface.
+``entrada`` (teclado e processos locais) mantém a ordem, pois disputa o foco;
+``rede`` (webhook, HA, OBS) pode demorar e não deve atrasar as teclas. Macros
+rodam inteiras na via de entrada. Filas limitadas: melhor descartar com aviso
+do que disparar um lote acumulado depois.
 """
 
 from __future__ import annotations
@@ -35,8 +22,7 @@ log = logging.getLogger(__name__)
 
 
 class ActionRunner:
-    # Fundo de fila por via. Um macropad gera poucos eventos por segundo;
-    # passar disso significa que alguma ação está travada.
+    # Por via; passar disso significa que alguma ação está travada.
     QUEUE_MAX = 32
     JOIN_TIMEOUT_S = 3.0
 
@@ -85,8 +71,6 @@ class ActionRunner:
                 work_queue.put_nowait(None)
         for thread in self._threads:
             thread.join(timeout=self.JOIN_TIMEOUT_S)
-
-    # ------------------------------------------------------------ interno
 
     def _run(self, work_queue: queue.Queue[Action | None]) -> None:
         while True:

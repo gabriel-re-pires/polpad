@@ -1,19 +1,8 @@
 """Controlador central: liga o dispositivo, os perfis e o motor de ações.
 
-Fluxo principal (executa a cada tecla pressionada no macropad):
-
-    evento "key down" -> é a tecla de modo?  -> alterna o perfil ativo
-                                                e atualiza o display
-                      -> senão               -> resolve a ação no perfil
-                                                ativo e a enfileira no
-                                                ActionRunner
-
-O controlador não conhece Qt nem pyserial: recebe eventos já decodificados
-e fala com o dispositivo por meio da interface ``DeviceLink``. Os serviços
-de tempo de que precisa são injetados — ``schedule(segundos, função)``
-(fim do ícone na troca de perfil) e ``clock()`` (hora da tela
-personalizada), que o host chama a cada segundo por :meth:`tick`. Isso o
-torna testável de forma isolada (ver ``tests/test_controller.py``).
+Tecla de modo troca o perfil; as demais enfileiram a ação no ActionRunner.
+Não conhece Qt nem pyserial; ``schedule`` e ``clock`` são injetados para
+testes isolados.
 """
 
 from __future__ import annotations
@@ -35,7 +24,7 @@ Scheduler = Callable[[float, Callable[[], None]], None]
 
 
 class Controller:
-    # Tempo em que o ícone do perfil fica na tela após uma troca de perfil.
+    # Tempo do ícone na tela após uma troca de perfil.
     SPLASH_S = 1.5
 
     def __init__(
@@ -55,22 +44,17 @@ class Controller:
         self._clock = clock
         # Último payload enviado: evita reenviar 1,4 KB quando nada mudou.
         self._last_payload: str | None = None
-        # Ícone mostrado após a troca de perfil. O contador invalida o
-        # retorno agendado de uma troca anterior (trocas em sequência).
+        # O contador invalida o fim agendado de uma troca anterior.
         self._splash_token = 0
         self._splashing = False
-        # Captura de tecla ("Capturar do macropad"): a próxima tecla apertada
-        # vai para este callback em vez de executar a ação ou trocar o perfil.
+        # "Capturar do macropad": a próxima tecla vai para cá, sem executar nada.
         self.key_capture: Callable[[int], None] | None = None
-
-    # ------------------------------------------------------------ eventos
 
     def handle_message(self, message: dict[str, Any]) -> None:
         """Processa uma mensagem vinda do dispositivo (ou do simulador)."""
         kind = message.get("t")
         if kind == "hello":
-            # O dispositivo (re)iniciou ou acabou de nos ver: o que ele tem
-            # na tela não é o nosso quadro, então o reenvio é forçado.
+            # O dispositivo (re)iniciou: a tela dele não é o nosso quadro.
             self.push_display(force=True)
         elif kind == "key" and message.get("e") == "down":
             key = int(message.get("k", -1))
@@ -81,7 +65,7 @@ class Controller:
                 return
             self._handle_key(key)
         elif kind == "_mode_switch":
-            # Mensagem interna gerada pela ação "mode_switch" (ver app.py).
+            # Gerada pela ação "mode_switch" (ver app.py).
             self.switch_mode()
 
     def _handle_key(self, key: int) -> None:
@@ -96,8 +80,6 @@ class Controller:
             log.debug("tecla %d sem ação no perfil %s", key, profile.name)
             return
         self._runner.submit(action)
-
-    # ------------------------------------------------------------- perfil
 
     def switch_mode(self) -> None:
         """Avança para o próximo perfil (tecla de modo)."""
@@ -116,15 +98,10 @@ class Controller:
         if profile is not None:
             self._on_profile_changed(profile)
 
-    # ------------------------------------------------------------ display
-
     def _show_profile(self) -> None:
         """Atualiza o display após uma troca de perfil.
 
-        No modo ``personalizado``, o ícone do perfil (ou o nome, sem ícone)
-        aparece primeiro — é o que identifica o perfil de relance — e, após
-        :attr:`SPLASH_S`, dá lugar à tela montada. No modo ``icone`` a tela
-        já é o ícone.
+        No modo ``personalizado`` mostra o ícone por :attr:`SPLASH_S` antes da tela.
         """
         profile = self._store.active_profile
         wants_splash = (
@@ -163,21 +140,13 @@ class Controller:
         return display.profile_frame(profile, self._clock())
 
     def preview_frame(self, profile: Profile):
-        """Quadro de ``profile`` para a prévia da janela.
-
-        O perfil ativo mostra o que está no aparelho agora (inclusive o
-        ícone da troca); os outros mostram a tela que teriam se ativados.
-        """
+        """Quadro de ``profile`` para a prévia: o ativo mostra o que está no aparelho."""
         if profile.id == self._store.active_profile_id:
             return self.current_frame()
         return display.profile_frame(profile, self._clock())
 
     def tick(self) -> None:
-        """Chamado pelo host a cada segundo: atualiza a hora da tela personalizada.
-
-        Quadros iguais ao último não são reenviados, então na prática sai
-        uma mensagem por minuto.
-        """
+        """Chamado a cada segundo; como quadros repetidos não saem, é 1 msg/min."""
         profile = self._store.active_profile
         if (
             profile is not None
@@ -187,14 +156,8 @@ class Controller:
             self.push_display()
 
     def push_display(self, force: bool = False) -> None:
-        """Envia ao display o quadro do perfil ativo.
-
-        Quadros idênticos ao último enviado são suprimidos (a troca de
-        perfil pela interface, por exemplo, dispara vários ``refresh``),
-        exceto quando ``force`` — após um ``hello`` o dispositivo pode ter
-        reiniciado e perdido a tela.
-        """
-        # Qualquer quadro "normal" encerra o ícone da troca de perfil.
+        """Envia o quadro do perfil ativo; repetidos são suprimidos, salvo ``force``."""
+        # Qualquer quadro normal encerra o ícone da troca de perfil.
         self._splashing = False
         frame = self.current_frame()
         if frame is None:

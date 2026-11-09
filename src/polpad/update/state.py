@@ -1,9 +1,6 @@
-"""Estado do atualizador, guardado fora das preferências do usuário.
+"""Estado do atualizador em ``updates/estado.json``, fora das preferências.
 
-``updates/estado.json`` lembra a última verificação, a atualização já
-baixada à espera de instalação e a troca de versão em andamento. Um
-arquivo ausente ou ilegível vale como estado vazio: no pior caso o
-aplicativo verifica de novo.
+Arquivo ausente ou ilegível vale como estado vazio.
 """
 
 from __future__ import annotations

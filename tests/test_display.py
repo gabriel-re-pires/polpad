@@ -62,7 +62,6 @@ class ShortLabelTest(unittest.TestCase):
         action = Action(type="hotkey", short="ABCD")
         restaurada = Action.from_dict(action.to_dict())
         self.assertEqual(restaurada.short, "ABC")
-        # Sem abreviação, o campo nem aparece no JSON.
         self.assertNotIn("short", Action(type="hotkey").to_dict())
 
 
@@ -244,11 +243,8 @@ class GravacaoDeAtalhoTest(unittest.TestCase):
 
 
 class CapturaDeAtalhoTest(unittest.TestCase):
-    """O campo de atalho traduz a tecla pressionada (dados do QKeyEvent).
-
-    Códigos nativos do Windows (``xkb=False``); os do Linux estão em
-    ``test_linux``.
-    """
+    """Tecla do QKeyEvent com códigos do Windows (``xkb=False``); os do
+    Linux estão em ``test_linux``."""
 
     CTRL, SHIFT, ALT = 0x04000000, 0x02000000, 0x08000000
 

@@ -1,13 +1,7 @@
-"""Barra lateral de perfis ("saves") do usuário.
+"""Barra lateral de perfis, na ordem em que a tecla de modo os percorre.
 
-Lista os perfis na ordem em que a tecla de modo os percorre (arrastar
-reordena) e marca com uma bolinha verde o que está ativo no aparelho. O
-cabeçalho tem três ícones: ``+`` (novo perfil), a engrenagem (operações
-sobre o perfil: ativar, renomear, apps vinculados, exportar, importar,
-excluir) e o de recolher, posto pela coluna recolhível.
-
-Recolhida, a coluna mostra só os ladrilhos dos perfis (:meth:`rail`): dá
-para trocar o perfil em edição sem expandi-la.
+Arrastar reordena; a bolinha verde marca o perfil ativo no aparelho.
+Recolhida, a coluna mostra só os ladrilhos (:meth:`ProfilePanel.rail`).
 """
 
 from __future__ import annotations
@@ -191,7 +185,6 @@ class ProfilePanel(QFrame):
         new_btn = bare_icon_button("plus", "Novo perfil")
         new_btn.clicked.connect(self._new)
         header.addWidget(new_btn)
-        # Engrenagem: as configurações do perfil, num menu.
         gear = bare_icon_button("settings", "Configurações do perfil")
         gear.setPopupMode(QToolButton.InstantPopup)
         gear.setMenu(self._build_menu(gear))
@@ -208,8 +201,7 @@ class ProfilePanel(QFrame):
         self._list.itemDoubleClicked.connect(
             lambda item: self.activate_requested.emit(item.data(ROLE_ID))
         )
-        # Arrastar reordena a lista — e a ordem da lista é a ordem em que a
-        # tecla de modo percorre os perfis.
+        # A ordem da lista é a ordem em que a tecla de modo percorre os perfis.
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.MoveAction)
         self._list.model().rowsMoved.connect(self._on_rows_moved)
@@ -228,7 +220,6 @@ class ProfilePanel(QFrame):
         hint.setContentsMargins(8, 0, 8, 0)
         layout.addWidget(hint)
 
-        # Ladrilhos para o trilho da coluna recolhida.
         self._rail = QWidget()
         self._rail_layout = QVBoxLayout(self._rail)
         self._rail_layout.setContentsMargins(0, 6, 0, 0)
@@ -236,8 +227,6 @@ class ProfilePanel(QFrame):
         self._rail_tiles: list[_RailTile] = []
 
         self.refresh()
-
-    # ---------------------------------------------------------------- API
 
     def rail(self) -> QWidget:
         """Os ladrilhos dos perfis, para o trilho da coluna recolhida."""
@@ -283,11 +272,6 @@ class ProfilePanel(QFrame):
     def selected_profile_id(self) -> str | None:
         item = self._list.currentItem()
         return item.data(ROLE_ID) if item else None
-
-    def select(self, profile_id: str) -> None:
-        self._select(profile_id)
-
-    # ------------------------------------------------------------- eventos
 
     def _build_menu(self, parent: QWidget) -> QMenu:
         """Configurações do perfil: o menu da engrenagem e do botão direito."""
@@ -374,8 +358,6 @@ class ProfilePanel(QFrame):
             self.refresh()
             self.profiles_changed.emit()
 
-    # ------------------------------------------------- exportar/importar
-
     def _export(self) -> None:
         profile = self._store.profile_by_id(self.selected_profile_id())
         if profile is None:
@@ -427,11 +409,7 @@ class ProfilePanel(QFrame):
         self.profiles_changed.emit()
 
     def _confirmar_acoes_sensiveis(self, importado) -> bool:
-        """Mostra o que o perfil executaria antes de aceitá-lo.
-
-        Um perfil vindo de terceiros pode conter ações que rodam comandos
-        de shell ou abrem programas com os privilégios de quem importa.
-        """
+        """Confirma a importação de perfil que roda comandos ou abre programas."""
         if not importado.sensitive:
             return True
         linhas = "\n".join(
@@ -472,4 +450,3 @@ class ProfilePanel(QFrame):
             if self._list.item(i).data(ROLE_ID) == profile_id:
                 self._list.setCurrentRow(i)
                 return
-

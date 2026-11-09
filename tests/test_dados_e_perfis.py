@@ -1,7 +1,4 @@
-"""Testes de regressão de dados, perfis e cópias.
-
-Cada classe descreve, no comentário inicial, o defeito real que a motivou.
-"""
+"""Regressões de dados, perfis e cópias; cada classe diz o defeito que a motivou."""
 
 from __future__ import annotations
 
@@ -45,9 +42,8 @@ class KeyringFalso:
 
 class CofreQueFalhaTest(unittest.TestCase):
     """``secrets.load`` devolvia ``""`` tanto para "não existe" quanto para
-    "deu erro". Com o cofre bloqueado por um instante na abertura, o token
-    ficava vazio em memória e o ``save()`` seguinte (qualquer troca de
-    perfil) o apagava do cofre de vez.
+    "deu erro": com o cofre bloqueado na abertura, o ``save()`` seguinte
+    apagava o token do cofre.
     """
 
     def setUp(self):
@@ -159,11 +155,10 @@ def _documento(perfil: dict[str, Any], **extra: Any) -> str:
 
 
 class ImportarPerfilTest(unittest.TestCase):
-    """Arquivos de perfil vindos de terceiros: um nome ``null`` entrava e
-    quebrava o display; uma macro com passo ``command`` e um ``webhook``
-    passavam sem aviso; o sufixo do ícone era usado como veio (um
-    ``.exe`` ia parar na pasta de dados); e um arquivo com BOM ou fora de
-    UTF-8 não era tratado como arquivo inválido.
+    """Perfis de terceiros: nome ``null`` quebrava o display; macro com
+    ``command`` e ``webhook`` passavam sem aviso; o sufixo do ícone vinha
+    sem filtro (um ``.exe`` ia para a pasta de dados); BOM ou texto fora
+    de UTF-8 não viravam arquivo inválido.
     """
 
     def setUp(self):

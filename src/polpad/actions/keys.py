@@ -1,9 +1,4 @@
-"""Mapeamento de nomes amigáveis de tecla para objetos ``pynput``.
-
-Os atalhos são persistidos como listas de nomes (ex.: ``["ctrl",
-"shift", "p"]``) para que o arquivo de configuração seja legível e
-independente de plataforma.
-"""
+"""Nomes de tecla (``["ctrl", "shift", "p"]``, como ficam no arquivo) <-> ``pynput``."""
 
 from __future__ import annotations
 
@@ -89,10 +84,9 @@ def resolve(name: str) -> Key | KeyCode:
     if name in _SPECIAL:
         return _SPECIAL[name]
     if len(name) == 1:
-        # No Windows a tecla vai pelo código virtual: dada como caractere,
-        # com Shift pressionado o pynput a troca pela maiúscula e manda um
-        # pacote Unicode sem código de tecla (Ctrl+Shift+P não chega como
-        # atalho). No Linux fica como estava.
+        # No Windows vai pelo código virtual: como caractere, com Shift o
+        # pynput manda um pacote Unicode sem código de tecla e Ctrl+Shift+P
+        # não chega como atalho.
         if sys.platform == "win32":
             vk = _char_vk(name)
             if vk is not None:
@@ -113,8 +107,7 @@ def _vk_key_scan(char: str) -> int:
 def _char_vk(char: str) -> int | None:
     """Código virtual da tecla que digita ``char`` sem modificadores.
 
-    ``None`` se o layout não tiver essa tecla ou se ela só sair com Shift
-    ou AltGr (ex.: "!"): aí o caractere segue como antes.
+    ``None`` se o layout não a tiver ou ela exigir Shift/AltGr (ex.: "!").
     """
     if "a" <= char <= "z" or "0" <= char <= "9":
         return ord(char.upper())
@@ -138,8 +131,6 @@ def media_key(control: str) -> KeyCode | None:
     code = codes.get(control)
     return None if code is None else KeyCode.from_vk(code)
 
-
-# ------------------------------------------------------- gravação (Qt)
 
 # Teclas especiais do Qt -> nome aceito por ``resolve``.
 _QT_SPECIAL: dict[int, str] = {
@@ -183,12 +174,9 @@ _QT_MODIFIERS = (
 
 
 def names_from_qt(sequence: object) -> list[str]:
-    """Converte uma ``QKeySequence`` gravada na UI para a lista de nomes.
+    """Converte uma ``QKeySequence`` (tipada ``object``, sem Qt aqui) em nomes.
 
-    Recebe ``object`` para manter este módulo livre de Qt: só usa o
-    ``toCombined()`` do primeiro ``QKeyCombination``. Devolve lista vazia
-    para combinações sem tecla principal (só modificadores) ou com tecla
-    que o pynput não representa.
+    Lista vazia se só houver modificadores ou a tecla não for representável.
     """
     try:
         combined = int(sequence[0].toCombined())  # type: ignore[index]
@@ -260,15 +248,11 @@ def names_from_event(
     *,
     xkb: bool = _XKB,
 ) -> list[str]:
-    """Converte uma tecla pressionada (dados de ``QKeyEvent``) em nomes.
+    """Converte uma tecla pressionada (inteiros de ``QKeyEvent``) em nomes.
 
-    Recebe inteiros para manter este módulo livre de Qt. Letras e números
-    vêm do código nativo da tecla (``nativeVirtualKey``, e no Linux também
-    ``nativeScanCode``) quando existe: assim ``Shift+1`` é gravado como
-    ``shift+1`` e não como ``!``, que é o que o Qt informa com o Shift
-    pressionado. ``xkb`` diz como ler esses códigos: keysym e código X no
-    Linux, código virtual no Windows. Devolve lista vazia se a tecla
-    principal não for representável (ou se for só um modificador).
+    Letras e números vêm do código nativo, para ``Shift+1`` não virar ``!``.
+    ``xkb``: keysym e código X (Linux) ou código virtual (Windows). Lista
+    vazia se a tecla não for representável ou for só modificador.
     """
     if key in QT_MODIFIER_KEYS:
         return []

@@ -1,8 +1,6 @@
-"""Acesso aos releases do repositório no GitHub.
+"""Releases do repositório no GitHub, para o firmware e o atualizador.
 
-Compartilhado pela gravação de firmware e pelo atualizador. Sem Qt: recebe
-e devolve dados simples, e todo acesso à rede aceita um ``session`` falso
-nos testes.
+Todo acesso à rede aceita um ``session`` falso nos testes.
 """
 
 from __future__ import annotations
@@ -43,8 +41,7 @@ def _client(session: Any | None) -> Any:
     return session if session is not None else requests
 
 
-#: Códigos com que a API do GitHub recusa quem passou do limite de consultas
-#: (60 por hora sem login, contadas por IP).
+#: Limite de consultas da API (60 por hora por IP, sem login).
 _RATE_LIMIT_STATUS = (403, 429)
 
 
@@ -113,13 +110,9 @@ def download(
     session: Any | None = None,
     cancel: Callable[[], bool] | None = None,
 ) -> Path:
-    """Baixa ``url`` para ``destination``.
+    """Baixa ``url`` para ``destination``; ``cancel`` é consultado a cada bloco.
 
-    ``cancel`` é consultado a cada bloco: devolvendo ``True``, o download
-    para com :class:`DownloadCancelledError` e nada fica gravado.
-
-    Escreve primeiro em ``.part`` e só renomeia com o tamanho conferido: um
-    download interrompido nunca vira um arquivo aparentemente válido.
+    Grava em ``.part`` e só renomeia com o tamanho conferido.
     """
     partial = destination.with_name(destination.name + ".part")
     try:
@@ -167,9 +160,6 @@ def _discard(path: Path) -> None:
         log.debug("não foi possível remover %s", path, exc_info=True)
 
 
-# ------------------------------------------------------------------- versões
-
-
 def normalize_version(tag: str) -> str:
     """Extrai ``1.2.0`` de tags como ``v1.2.0``, ``fw-1.2.0`` ou ``1.2.0``."""
     match = re.search(r"\d+(?:\.\d+)*", tag or "")
@@ -182,11 +172,7 @@ def version_key(version: str) -> tuple[int, ...]:
 
 
 def is_newer(candidate: str, installed: str) -> bool:
-    """``True`` se ``candidate`` for posterior a ``installed``.
-
-    Versões ilegíveis devolvem ``False``: na dúvida, não se sugere uma
-    atualização que pode não existir.
-    """
+    """``True`` se ``candidate`` for posterior a ``installed``; ilegível dá ``False``."""
     left, right = version_key(candidate), version_key(installed)
     if not left or not right:
         return False

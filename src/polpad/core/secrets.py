@@ -1,13 +1,7 @@
-"""Guarda de credenciais no cofre do sistema.
+"""Token do Home Assistant e senha do OBS no cofre do sistema (``keyring``).
 
-O token do Home Assistant e a senha do OBS não precisam ficar legíveis no
-``config.json``: vão para o Credential Manager do Windows (ou o chaveiro
-equivalente em outros sistemas) através da biblioteca ``keyring``.
-
-Se não houver um cofre disponível — ambiente sem backend, execução em um
-servidor sem sessão gráfica —, as funções avisam no log e devolvem
-``False``. O :class:`~polpad.core.store.Store` então mantém o segredo no
-arquivo, como antes: é preferível a perder a configuração do usuário.
+Sem cofre, as funções devolvem ``False`` e o
+:class:`~polpad.core.store.Store` mantém o segredo no ``config.json``.
 """
 
 from __future__ import annotations
@@ -64,8 +58,7 @@ def store(name: str, value: str) -> bool:
 def load(name: str) -> str | None:
     """Lê um segredo: ``""`` se não houver, ``None`` se a leitura falhar.
 
-    A diferença importa: um segredo que não pôde ser lido não pode ser
-    tratado como apagado, ou o próximo ``save()`` o apagaria do cofre.
+    Falha não é "apagado", senão o próximo ``save()`` o apagaria do cofre.
     """
     keyring = _keyring()
     if keyring is None:
@@ -80,6 +73,5 @@ def load(name: str) -> str | None:
 def _delete(keyring, name: str) -> None:
     from keyring.errors import PasswordDeleteError
 
-    # Apagar o que já não existe é o resultado desejado de qualquer forma.
     with contextlib.suppress(PasswordDeleteError):
         keyring.delete_password(SERVICE, name)

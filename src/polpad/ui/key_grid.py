@@ -1,17 +1,7 @@
 """O aparelho na tela: corpo do macropad, display OLED e as 18 teclas.
 
-É o elemento central da interface. A disposição vem de
-:data:`~polpad.core.models.KEY_LAYOUT` — a mesma grade 4x5 do PCB, com
-o display ocupando o canto superior esquerdo, onde ficam o módulo e o
-OLED no aparelho real. Assim o que se vê na tela tem a forma do que está
-sobre a mesa.
-
-Interação (vale para mouse e teclado):
-
-* clique / Espaço  — seleciona a tecla (o inspetor mostra a ação);
-* clique duplo / Enter — abre o editor da ação;
-* botão direito / tecla de menu — operações rápidas;
-* setas — movem a seleção pela grade.
+A disposição segue :data:`~polpad.core.models.KEY_LAYOUT` (grade 4x5 do PCB,
+com o OLED no canto superior esquerdo, como no aparelho real).
 """
 
 from __future__ import annotations
@@ -35,7 +25,6 @@ from ..core.models import GRID_COLS, GRID_ROWS, KEY_LAYOUT, Profile, key_at
 from . import style
 from .oled_preview import OledPreview
 
-# ---------------------------------------------------- tokens do componente
 KEY_MIN = 74          # px — tecla mínima (janela pequena)
 KEY_MAX = 124         # px — tecla máxima (janela grande)
 KEY_GAP_RATIO = 0.14  # vão entre teclas, proporcional à tecla
@@ -83,8 +72,6 @@ class KeyCap(QAbstractButton):
         self.setAccessibleDescription(desc)
         self.update()
 
-    # ------------------------------------------------------------- eventos
-
     def enterEvent(self, event) -> None:  # noqa: N802 — API Qt
         self._hover = True
         self.update()
@@ -115,8 +102,6 @@ class KeyCap(QAbstractButton):
             return
         super().keyPressEvent(event)
 
-    # -------------------------------------------------------------- desenho
-
     def paintEvent(self, _event) -> None:  # noqa: N802 — API Qt
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -126,7 +111,7 @@ class KeyCap(QAbstractButton):
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         face = r.adjusted(0, 0 if travel else KEY_TRAVEL, 0, -travel)
 
-        # Curso: a "saia" escura sob a face dá a sensação de tecla física.
+        # "Saia" escura sob a face: o curso de tecla física.
         if travel:
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#07080B"))
@@ -181,7 +166,6 @@ class KeyCap(QAbstractButton):
         on_accent = self.lit
         base = self.font()
 
-        # Número da tecla (canto superior esquerdo).
         num_font = QFont(base)
         num_font.setPixelSize(11)
         num_font.setWeight(QFont.DemiBold)
@@ -205,8 +189,7 @@ class KeyCap(QAbstractButton):
         fm_t = QFontMetrics(title_font)
         fm_s = QFontMetrics(sub_font)
 
-        # O tipo só aparece se couber inteiro: cortado ("Atalho de tecl…")
-        # é ruído — o inspetor mostra o tipo completo.
+        # O tipo só aparece se couber inteiro; cortado é ruído (o inspetor mostra).
         show_sub = (
             bool(c.subtitle)
             and face.height() >= 84
@@ -296,8 +279,6 @@ class DeviceView(QWidget):
             self._caps.append(cap)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-    # --------------------------------------------------------------- tamanho
-
     def _metrics(self, w: float, h: float) -> tuple[float, float, float]:
         """(tecla, vão, margem) que cabem em ``w`` x ``h``."""
         for unit in range(KEY_MAX, KEY_MIN - 1, -2):
@@ -356,8 +337,6 @@ class DeviceView(QWidget):
             self.oled.setGeometry(first.united(last).toRect())
         self.update()
 
-    # -------------------------------------------------------------- desenho
-
     def paintEvent(self, _event) -> None:  # noqa: N802 — API Qt
         if self._body.isEmpty():
             return
@@ -391,8 +370,6 @@ class DeviceView(QWidget):
         p.setPen(QPen(QColor(255, 255, 255, 22), 1))
         p.drawPath(hl)
         p.end()
-
-    # ------------------------------------------------------------------ API
 
     def _on_click(self, key: int) -> None:
         self.set_selected(key)

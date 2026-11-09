@@ -1,9 +1,7 @@
-"""Copia o ``.ico`` do executável a partir do pacote de ícones do aplicativo.
+"""Copia o ``polvo-roxo.ico`` feito à mão para o executável.
 
-O ``.ico`` é o ``polvo-roxo.ico`` feito à mão (``src/polpad/ui/assets``),
-com 16 a 256 px dentro — os tamanhos pequenos usam a versão simplificada
-do polvo. Gerá-lo reduzindo a maior imagem estragaria esses tamanhos.
-É o mesmo ícone da janela e da bandeja (:mod:`polpad.ui.app_icon`).
+Não é gerado reduzindo a maior imagem: os tamanhos pequenos usam um polvo
+simplificado.
 
     .venv\\Scripts\\python tools\\make_icon.py [destino.ico]
 """

@@ -1,9 +1,7 @@
 """Baixa uma versão conferindo a soma e faz a troca.
 
-Windows: o instalador do Inno Setup troca os arquivos depois que o Polpad
-se fecha (com a janela de progresso, ao atualizar pelo aviso). Linux: o
-executável novo é extraído ao lado do atual e renomeado por cima dele — a
-troca é instantânea e o processo em execução não é afetado.
+Windows: o Inno Setup troca os arquivos depois que o Polpad fecha. Linux: o
+executável novo é extraído ao lado e renomeado por cima do atual.
 """
 
 from __future__ import annotations
@@ -83,9 +81,8 @@ def prepare(
 def windows_command(installer: Path, log_path: Path, relaunch: bool) -> list[str]:
     """Linha de comando do instalador.
 
-    Atualizando pelo aviso (``relaunch``), o instalador mostra a janela de
-    progresso: sem ela o Polpad some por alguns segundos e a pessoa tenta
-    abri-lo de novo no meio da troca. Ao sair pela bandeja, em silêncio.
+    Com ``relaunch`` mostra o progresso: sem ele o Polpad some por segundos e a
+    pessoa tenta abri-lo no meio da troca. Ao sair pela bandeja, em silêncio.
     """
     argv = [
         str(installer),
@@ -103,11 +100,8 @@ def windows_command(installer: Path, log_path: Path, relaunch: bool) -> list[str
 def launch_detached(argv: list[str]) -> None:
     """Abre um processo que sobrevive ao fechamento do Polpad.
 
-    ``PYINSTALLER_RESET_ENVIRONMENT`` faz o executável aberto se comportar
-    como uma instância nova: sem isso, o Polpad empacotado em arquivo único
-    (Linux) reusaria a pasta temporária desta instância — apagada quando
-    ela sai — em vez de desempacotar a própria versão. O instalador do
-    Windows repassa o mesmo ambiente ao Polpad que ele reabre.
+    ``PYINSTALLER_RESET_ENVIRONMENT``: sem ele, o executável de arquivo único
+    (Linux) reusaria a pasta temporária desta instância, apagada ao sair.
     """
     log.info("abrindo: %s", argv)
     env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
@@ -142,8 +136,7 @@ def swap_linux(package: Path, target: Path) -> None:
         new.unlink(missing_ok=True)
         raise InstallError(f"Sem permissão para gravar em {target.parent}.") from exc
     except (KeyError, tarfile.TarError, EOFError, zlib.error) as exc:
-        # Um .tar.gz cortado (download pela metade) termina em EOFError ou
-        # zlib.error ao ler o membro, não em TarError.
+        # .tar.gz cortado dá EOFError ou zlib.error, não TarError.
         new.unlink(missing_ok=True)
         raise InstallError("O pacote baixado está danificado.") from exc
     except InstallError:

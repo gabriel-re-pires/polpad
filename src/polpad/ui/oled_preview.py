@@ -1,27 +1,18 @@
-"""Widget que reproduz o conteúdo do display OLED do macropad.
+"""Widget que reproduz, pixel a pixel, o display OLED do macropad.
 
-Usado no aparelho da janela principal, no inspetor de ícone e no
-simulador. Os quadros são reconstruídos a partir das mesmas mensagens do
-protocolo ("text" e "img") com a mesma fonte e o mesmo algoritmo do
-firmware (:mod:`polpad.core.oled_render`), de modo que o que se vê aqui
-é, pixel a pixel, o que o SSD1306 mostra.
-
-Cada pixel é desenhado como um ponto separado dos vizinhos por uma fresta
-— como os pixels de um OLED de verdade vistos de perto. Isso deixa claro
-para quem configura que o display é de 1 bit e baixa resolução, e que é
-por isso que o ícone precisa ser simples.
+Os quadros saem das mesmas mensagens do protocolo e do mesmo algoritmo do
+firmware (:mod:`polpad.core.oled_render`). Cada pixel é um ponto com fresta,
+para deixar evidente que o display é de 1 bit e baixa resolução.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from PIL import Image
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from ..core import display, oled_render
+from ..core import oled_render
 from ..core.models import SCREEN_H, SCREEN_W
 from . import style
 
@@ -41,19 +32,10 @@ class OledPreview(QWidget):
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
 
-    # ----------------------------------------------------------------- API
-
-    def show_message(self, message: dict[str, Any]) -> None:
-        frame = display.frame_from_message(message)
-        if frame is not None:
-            self.show_frame(frame)
-
     def show_frame(self, frame: Image.Image) -> None:
         self._frame = frame.convert("1")
         self._cache = None
         self.update()
-
-    # -------------------------------------------------------------- tamanho
 
     def sizeHint(self) -> QSize:  # noqa: N802 — API Qt
         return QSize(
@@ -68,15 +50,12 @@ class OledPreview(QWidget):
         self._cache = None
         super().resizeEvent(event)
 
-    # -------------------------------------------------------------- desenho
-
     def _glass(self) -> QRectF:
         """Retângulo do vidro, na proporção 2:1 do display, centralizado."""
         avail_w = self.width() - 2 * self._padding
         avail_h = self.height() - 2 * self._padding
         step = max(min(avail_w / SCREEN_W, avail_h / SCREEN_H), 0.5)
-        # Passo inteiro em pixels físicos deixa todos os pontos iguais. Só
-        # vale a pena se encolher pouco; senão fica o passo fracionário.
+        # Passo inteiro em pixels físicos deixa os pontos iguais; só se encolher pouco.
         ratio = self.devicePixelRatioF() or 1.0
         snapped = int(step * ratio) / ratio
         if snapped >= 0.8 * step:
@@ -100,8 +79,7 @@ class OledPreview(QWidget):
         p.drawRoundedRect(bezel.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
 
         step = glass.width() / SCREEN_W
-        # A fresta entre pontos só aparece com pontos grandes; em escalas
-        # pequenas ela vira moiré.
+        # Fresta só com pontos grandes; em escalas pequenas ela vira moiré.
         ratio = self.devicePixelRatioF() or 1.0
         if step * ratio >= 3:
             # Fresta de um pixel físico (ou proporcional, em escalas grandes).

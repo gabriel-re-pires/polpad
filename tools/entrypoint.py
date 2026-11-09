@@ -1,14 +1,8 @@
-"""Ponto de entrada do executável empacotado.
+"""Ponto de entrada do executável (imports relativos não resolvem no ``__main__``).
 
-O PyInstaller carrega o script inicial como ``__main__`` de nível
-superior, onde os imports relativos de ``macropad/__main__.py`` não
-resolveriam. Este arquivo apenas importa o pacote e chama ``main()``.
-
-No Linux o PyInstaller aponta ``LD_LIBRARY_PATH`` para as bibliotecas
-embutidas (Qt, OpenSSL...). Os programas que as teclas abrem — terminal,
-navegador, ``xdg-open`` — herdariam esse caminho e poderiam carregar
-versões incompatíveis. O carregador dinâmico lê a variável só na partida
-deste processo, então restaurar o valor original aqui não afeta o Polpad.
+No Linux o PyInstaller aponta ``LD_LIBRARY_PATH`` para as bibliotecas embutidas,
+e os programas abertos pelas teclas as herdariam. Restaurar aqui não afeta o
+Polpad: o carregador só lê a variável na partida.
 """
 
 import os

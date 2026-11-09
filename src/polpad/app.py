@@ -1,8 +1,6 @@
-"""Raiz de composição do aplicativo.
+"""Raiz de composição: monta store -> runner -> controller -> enlace serial.
 
-Monta as dependências (store -> runner -> controller -> enlace) e
-gerencia o enlace serial (porta escolhida ou busca automática). As camadas de
-domínio não conhecem Qt; a comunicação com a UI passa pelo
+O domínio não conhece Qt; a UI conversa com ele pelo
 :class:`~polpad.ui.bridge.DeviceBridge`.
 """
 
@@ -32,8 +30,7 @@ class MacropadApp:
         self.store.load()
 
         self.bridge = DeviceBridge()
-        # Falhas ao gravar a configuração aparecem na barra de status, pelo
-        # mesmo canal já usado pelos erros de ação.
+        # Falhas ao gravar a configuração vão para a barra de status.
         self.store.on_error = self.bridge.action_error.emit
         self.runner = ActionRunner(
             context=ActionContext(
@@ -47,48 +44,34 @@ class MacropadApp:
             runner=self.runner,
             send=self._send,
             on_profile_changed=self.bridge.profile_changed.emit,
-            # O controlador é livre de Qt; o temporizador do retorno visual
-            # da tecla é injetado (roda na thread da UI, como o próprio
-            # controlador).
+            # Controlador livre de Qt: o temporizador é injetado.
             schedule=lambda seconds, fn: QTimer.singleShot(int(seconds * 1000), fn),
         )
-        # O Controller nao e um QObject, de proposito: a camada de dominio
-        # nao conhece Qt. Ligar o sinal direto ao metodo dele produz uma
-        # conexao DIRETA, e handle_message passa a rodar na thread do
-        # enlace serial - mexendo no store, gravando o config.json e
-        # renderizando o display fora da thread da interface. O
-        # QTimer.singleShot injetado como `schedule` tambem nao dispara ali,
-        # porque aquela thread nao tem laco de eventos: o destaque da tecla
-        # no display nunca se apagava.
-        #
-        # O relay e um QObject criado aqui, na thread da UI, entao a entrega
-        # vira "queued" e tudo volta a rodar onde deve.
+        # O Controller não é QObject: ligar o sinal direto a ele faria
+        # handle_message rodar na thread serial (store, config.json e display
+        # fora da UI, e o QTimer de `schedule` nunca dispararia). O relay,
+        # criado na thread da UI, torna a entrega "queued".
         self._ui_relay = UiRelay(self.controller.handle_message)
         self.bridge.message.connect(self._ui_relay.deliver)
 
         self.link: DeviceLink | None = None
-        # Última escolha de enlace, para restaurar depois de uma pausa
-        # (a gravação do firmware precisa da porta serial livre).
+        # Restaurada depois de uma pausa (gravação do firmware).
         self._port_choice: str | None = None
         self._paused = False
 
-        # Troca automática de perfil pelo aplicativo em foco (edge-triggered:
-        # só reage quando o foco MUDA, então uma troca manual pela tecla de
-        # modo prevalece até o usuário focar outro app vinculado).
+        # Troca de perfil pelo app em foco: só reage quando o foco muda, então
+        # uma troca manual vale até o usuário focar outro app vinculado.
         self._last_exe: str | None = None
         self._foreground_timer = QTimer()
         self._foreground_timer.setInterval(1000)
         self._foreground_timer.timeout.connect(self._poll_foreground)
         self._foreground_timer.start()
 
-        # Relógio da tela personalizada. O controlador só reenvia o quadro
-        # quando ele muda (uma vez por minuto, com a hora em HH:MM).
+        # Relógio da tela personalizada; o quadro só é reenviado se mudou.
         self._clock_timer = QTimer()
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self.controller.tick)
         self._clock_timer.start()
-
-    # ------------------------------------------------------------- enlace
 
     def use_port(self, port: str | None) -> None:
         """Ativa o enlace: uma COM específica ou a busca automática (``None``)."""
@@ -107,13 +90,10 @@ class MacropadApp:
         self.link.start()
 
     def pause_link(self) -> bool:
-        """Solta a porta serial para que outra ferramenta possa usá-la.
+        """Solta a porta serial para o esptool gravar o firmware.
 
-        A gravação do firmware precisa de acesso exclusivo à COM; enquanto
-        o enlace estiver rodando, o esptool encontraria a porta ocupada.
-
-        Devolve ``True`` se havia um enlace serial ativo — nesse caso o
-        chamador deve chamar :meth:`resume_link` ao terminar.
+        ``True`` se havia enlace ativo; aí o chamador deve chamar
+        :meth:`resume_link` depois.
         """
         if self._paused or not isinstance(self.link, SerialLink):
             return False
@@ -139,8 +119,6 @@ class MacropadApp:
         if self.link is not None:
             self.link.send(message)
 
-    # ------------------------------------------------------------ diverso
-
     def _poll_foreground(self) -> None:
         exe = foreground.foreground_exe()
         if exe == self._last_exe:
@@ -153,8 +131,7 @@ class MacropadApp:
             self.controller.activate_profile(profile.id)
 
     def _request_mode_switch(self) -> None:
-        """Chamado pela ação "mode_switch" (thread de ações)."""
-        # Repassa para a thread da UI através da ponte.
+        """Chamado pela ação "mode_switch" (thread de ações); repassa à UI."""
         self.bridge.message.emit({"t": "_mode_switch"})
 
     def shutdown(self) -> None:

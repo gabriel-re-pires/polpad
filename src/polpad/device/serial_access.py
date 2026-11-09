@@ -1,20 +1,8 @@
 """Libera, no Linux, o acesso do usuário à porta serial do macropad.
 
-A porta (``/dev/ttyACM0``) pertence a um grupo do sistema (``uucp`` no
-Arch, ``dialout`` no Debian/Ubuntu/Fedora). Entrar nele resolve, mas só
-depois de sair e entrar de novo na sessão — e até lá o macropad parece
-apenas "desconectado".
-
-Uma regra udev com ``TAG+="uaccess"`` resolve na hora: o systemd-logind
-dá ao usuário da sessão ativa uma ACL sobre os dispositivos com essa
-marca, como já faz com câmera e microfone. A regra vale só para placas da
-Espressif (VID 303a) e é instalada uma vez, com a senha de administrador
-pedida pelo ``pkexec``. Apagar o arquivo desfaz.
-
-``ID_MM_DEVICE_IGNORE`` afasta o ModemManager, que sonda toda porta
-``ttyACM`` nova com comandos AT e a deixa ocupada nos primeiros segundos.
-
-O módulo não conhece Qt: a interface chama :func:`grant` numa thread.
+Entrar no grupo ``uucp``/``dialout`` só vale após novo login; uma regra udev com
+``TAG+="uaccess"`` (placas Espressif) vale na hora, instalada via ``pkexec``.
+``ID_MM_DEVICE_IGNORE`` impede o ModemManager de ocupar a porta sondando-a.
 """
 
 from __future__ import annotations
@@ -43,9 +31,7 @@ RULE = (
     'TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"\n'
 )
 
-# Instala a regra e a reaplica às portas já conectadas, numa chamada só
-# (uma senha só). ``settle`` espera o udev terminar: a próxima tentativa
-# do enlace já encontra a permissão no lugar.
+# Uma chamada só (uma senha). ``settle`` espera o udev aplicar a permissão.
 _SCRIPT = (
     'install -m 0644 "$1" "$2"'
     " && udevadm control --reload-rules"
@@ -53,8 +39,7 @@ _SCRIPT = (
     " && udevadm settle --timeout=10"
 )
 
-# Códigos de saída do pkexec (ver ``man pkexec``).
-_PKEXEC_DISMISSED = 126
+_PKEXEC_DISMISSED = 126  # ver ``man pkexec``
 
 
 class GrantError(RuntimeError):
@@ -75,11 +60,7 @@ def can_grant() -> bool:
 
 
 def grant(run: Callable[..., Any] = subprocess.run) -> None:
-    """Instala a regra udev pedindo a senha de administrador.
-
-    Levanta :class:`GrantCancelledError` se a janela de senha for fechada e
-    :class:`GrantError` em qualquer outra falha.
-    """
+    """Instala a regra udev pedindo a senha de administrador."""
     fd, tmp = tempfile.mkstemp(prefix="polpad-", suffix=".rules")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

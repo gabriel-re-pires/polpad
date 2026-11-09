@@ -1,9 +1,8 @@
 """Versão do Polpad no centro da barra inferior.
 
-O ``QStatusBar`` só põe widgets à esquerda ou à direita, e esconde os da
-esquerda enquanto mostra uma mensagem. Este rótulo fica por cima da
-barra, sempre centralizado, e só se esconde quando uma mensagem longa
-chegaria até ele.
+O ``QStatusBar`` só põe widgets nas laterais (e esconde os da esquerda durante
+mensagens); este rótulo fica por cima, centralizado, e só some se uma mensagem
+longa chegaria até ele.
 """
 
 from __future__ import annotations

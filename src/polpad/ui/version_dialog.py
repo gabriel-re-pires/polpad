@@ -166,8 +166,6 @@ class VersionPage(Page):
             layout.addLayout(row)
             self.body.addWidget(card)
 
-    # ------------------------------------------------------------ estado
-
     def set_view(self, view: VersionView) -> None:
         self._view = view
         dev = view.kind == "desenvolvimento"
@@ -217,8 +215,6 @@ class VersionPage(Page):
     def backup_buttons(self) -> list[QPushButton]:
         return list(self._backup_buttons)
 
-    # ------------------------------------------------------------ listas
-
     def _fill_releases(self, view: VersionView, dev: bool) -> None:
         _clear(self._releases_layout)
         self._release_buttons.clear()
@@ -267,8 +263,6 @@ class VersionPage(Page):
             line.addWidget(button)
             self._backup_buttons.append(button)
             self._backups_layout.addWidget(row)
-
-    # ------------------------------------------------------------ ações
 
     def _confirm(self, text: str) -> bool:
         answer = QMessageBox.question(self, APP_NAME, text)

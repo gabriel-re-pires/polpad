@@ -1,21 +1,10 @@
 """Campo que grava um atalho pressionando a combinação no teclado.
 
-Em vez de digitar "ctrl+c", o usuário clica no campo e aperta Ctrl+C: o
-campo mostra ``Ctrl`` ``+`` ``C`` como teclas desenhadas. Detalhes:
-
-* enquanto grava, o campo captura TODAS as teclas — inclusive Tab e Esc,
-  que normalmente mudariam o foco ou fechariam o diálogo;
-* a combinação fecha na primeira tecla que não é modificador; soltar só
-  modificadores (ex.: apertar e soltar Win) grava apenas eles;
-* Esc sozinho cancela a gravação e mantém o atalho anterior;
-* letras e números vêm do código físico da tecla, então Shift+1 é
-  gravado como ``Shift + 1`` (e não ``!``), em qualquer layout;
-* Ç, ´ e ~ do ABNT2 também são gravados; tecla sem nome conhecido mostra
-  um aviso no campo em vez de ser ignorada calada;
-* teclas que não existem em teclados comuns (F13–F20) ou que o sistema
-  intercepta ficam no menu "Mais teclas".
-
-A tradução tecla -> nome é pura e testada em :mod:`polpad.actions.keys`.
+Enquanto grava, captura todas as teclas (inclusive Tab e Esc). A combinação
+fecha na primeira tecla não modificadora; soltar só modificadores grava apenas
+eles; Esc sozinho cancela. Letras e números vêm do código físico, então
+Shift+1 vira ``Shift + 1`` em qualquer layout. A tradução tecla -> nome fica
+em :mod:`polpad.actions.keys`.
 """
 
 from __future__ import annotations
@@ -49,8 +38,6 @@ class _CaptureField(QWidget):
         self.setMinimumHeight(46)
         self.setAccessibleName("Atalho")
 
-    # ----------------------------------------------------------------- API
-
     def keys(self) -> list[str]:
         return list(self._keys)
 
@@ -77,8 +64,6 @@ class _CaptureField(QWidget):
         self._peak = []
         self._warning = ""
         self.update()
-
-    # ------------------------------------------------------------- eventos
 
     def sizeHint(self) -> QSize:  # noqa: N802 — API Qt
         return QSize(280, 46)
@@ -137,7 +122,6 @@ class _CaptureField(QWidget):
         if names:
             self._commit(names)
             return
-        # Tecla sem nome conhecido: avisa em vez de ignorar calado.
         self._warning = "Tecla não reconhecida. Tente outra ou use Mais teclas."
         self.update()
 
@@ -159,8 +143,6 @@ class _CaptureField(QWidget):
         self.stop()
         self.set_keys(names)
         self.changed.emit(self.keys())
-
-    # -------------------------------------------------------------- desenho
 
     def paintEvent(self, _event) -> None:  # noqa: N802 — API Qt
         p = QPainter(self)

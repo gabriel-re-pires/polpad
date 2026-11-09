@@ -1,8 +1,7 @@
 """Ícones de traço desenhados com QPainter (grade de 24 px, traço 1,8 px).
 
-Desenhar os ícones aqui evita empacotar uma fonte de ícones ou arquivos
-SVG no executável e mantém o traço coerente em todos eles. Cada glifo é
-uma função que recebe o ``QPainter`` já escalado para a grade de 24x24.
+Evita empacotar fonte de ícones ou SVGs. Cada glifo recebe o ``QPainter`` já
+escalado para a grade 24x24.
 """
 
 from __future__ import annotations

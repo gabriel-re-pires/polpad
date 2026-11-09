@@ -1,8 +1,7 @@
 """Versões do aplicativo publicadas no GitHub.
 
-Cada release traz um arquivo por sistema e um ``SHA256SUMS.txt``. Uma
-versão só é instalável pelo aplicativo quando tem os dois: isso exclui,
-sem número fixo no código, as versões anteriores ao instalador.
+Só é instalável a versão com arquivo do sistema e ``SHA256SUMS.txt``; isso
+exclui as anteriores ao instalador sem número fixo no código.
 """
 
 from __future__ import annotations

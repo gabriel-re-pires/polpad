@@ -1,10 +1,7 @@
-"""Escolhas feitas no instalador do Windows, aplicadas na primeira abertura.
+"""Escolhas do instalador do Windows, aplicadas na primeira abertura.
 
-O instalador não mexe no ``config.json``: grava o que a pessoa marcou em
-``opcoes-do-instalador.json`` na pasta de dados, e o Polpad aplica essas
-escolhas às configurações ao abrir e apaga o arquivo. Uma instalação
-silenciosa (atualização pelo próprio Polpad) não grava o arquivo, para não
-desfazer o que a pessoa mudou depois nas Configurações.
+O instalador grava ``opcoes-do-instalador.json`` em vez de mexer no
+``config.json``; a instalação silenciosa (atualização) não grava.
 """
 
 from __future__ import annotations

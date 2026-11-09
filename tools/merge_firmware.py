@@ -2,16 +2,9 @@
 
     .venv\\Scripts\\python tools\\merge_firmware.py <pasta-da-exportacao>
 
-A Arduino IDE (Sketch → *Exportar Binário Compilado*) deixa três arquivos
-soltos — bootloader, tabela de partições e aplicação — que precisam ir
-para endereços diferentes da memória flash. Este script os funde em um
-``firmware-<versao>.bin`` que se grava inteiro em 0x0.
-
-É esse arquivo que se anexa ao *release* do GitHub: o aplicativo o baixa e
-grava sem precisar saber nada sobre layout de partições (ver
-``src/polpad/device/flasher.py``).
-
-Sem argumentos, procura a exportação dentro de ``firmware/``.
+Funde bootloader, partições e aplicação (Sketch → *Exportar Binário
+Compilado*) em um ``firmware-<versao>.bin`` gravado inteiro em 0x0, que é o
+que se anexa ao release. Sem argumentos, procura a exportação em ``firmware/``.
 """
 
 from __future__ import annotations
@@ -82,10 +75,8 @@ def _app_bin(pasta: Path) -> Path:
 def _boot_app0(pasta: Path, explicito: Path | None) -> Path | None:
     """Localiza o ``boot_app0.bin`` do core arduino-esp32, se disponível.
 
-    Ele zera a partição ``otadata`` para que o bootloader escolha ``ota_0``.
-    Sem esse arquivo a gravação normalmente funciona (uma otadata em branco
-    leva ao mesmo lugar), mas incluí-lo torna o resultado determinístico —
-    inclusive por cima de um chip que já tinha uma imagem OTA.
+    Zera a ``otadata`` para o bootloader escolher ``ota_0`` mesmo num chip que
+    já tinha imagem OTA.
     """
     if explicito is not None:
         if not explicito.is_file():

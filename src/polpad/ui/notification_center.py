@@ -1,14 +1,9 @@
 """Guarda os avisos do Polpad na central de notificações do Windows.
 
-O aviso do canto da tela já aparece por 5 s; aqui ele vai para a central
-**sem** abrir um segundo banner (``SuppressPopup``), para quem quiser
-ver depois. Cada aviso novo substitui o anterior (mesma ``tag``), então
-abrir o Polpad várias vezes não enche a central de cópias.
-
-O Windows só aceita notificações de um aplicativo registrado: o nome e o
-ícone ficam em ``HKCU\\Software\\Classes\\AppUserModelId\\Polpad.Polpad``
-(sem precisar de administrador). Fora do Windows, ou sem o pacote
-``winrt``, as funções não fazem nada e devolvem ``False``.
+Vão sem segundo banner (``SuppressPopup``) e com ``tag`` fixa, para não
+acumular cópias. O Windows exige o app registrado em
+``HKCU\\Software\\Classes\\AppUserModelId\\Polpad.Polpad``. Fora do Windows,
+ou sem ``winrt``, as funções devolvem ``False``.
 """
 
 from __future__ import annotations

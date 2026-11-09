@@ -332,8 +332,6 @@ class EncerramentoTest(Base):
     def test_shutdown_apaga_o_aviso_antes_do_qapplication(self):
         """Uma janela sem dono destruída depois do QApplication derruba o
         processo ao sair (access violation no encerramento do Python)."""
-        import shiboken6
-
         controlador = self._controlador()
         controlador.check_now(user=False)
         aviso = controlador.toast
@@ -395,10 +393,6 @@ class AtualizacaoTest(Base):
         recarregado = Store(self.dados, vault=CofreFalso())
         recarregado.load()
         self.assertTrue(recarregado.settings.update_auto)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class StartupRobustoTest(Base):
@@ -691,3 +685,7 @@ class AvisoDeFirmwareTest(Base):
         controlador = self._controlador(firmware=falhar)
         controlador.device_firmware("2.0.2")
         self.assertFalse(controlador.toast.isVisible())
+
+
+if __name__ == "__main__":
+    unittest.main()

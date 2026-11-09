@@ -1,11 +1,7 @@
 """Página do editor de ação (no lugar das colunas, com "Voltar").
 
-Configurar uma tecla deixou de ser uma janela por cima da principal: a
-página ocupa a área de trabalho, como as Configurações, e "Voltar" (ou
-Esc) retorna ao aparelho. O formulário é o mesmo
-:class:`~polpad.ui.action_editor.ActionEditorDialog`, embutido como
-widget — os passos de macro continuam abrindo o editor em janela, porque
-são um sub-formulário dentro desta página.
+Embute o :class:`~polpad.ui.action_editor.ActionEditorDialog` como widget;
+os passos de macro continuam abrindo o editor em janela.
 """
 
 from __future__ import annotations
@@ -87,9 +83,8 @@ class ActionEditorPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(20, 18, 20, 18)
         card_layout.addWidget(self.editor)
-        # Largura fixa: as páginas do formulário calculam a altura sem prever
-        # quebra de linha; numa largura menor, a ajuda quebraria e cortaria
-        # os campos.
+        # Largura fixa: a altura das páginas não prevê quebra de linha, e numa
+        # largura menor a ajuda quebraria e cortaria os campos.
         card.setFixedWidth(760)
 
         scroll = FitScrollArea()

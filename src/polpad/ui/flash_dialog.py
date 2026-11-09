@@ -1,13 +1,7 @@
-"""Página de gravação do firmware no macropad.
+"""Página de gravação do firmware (release publicado ou .bin local).
 
-Reúne em uma página só o que antes exigia a Arduino IDE: escolher a porta,
-obter o binário (do release publicado ou de um arquivo local) e gravar,
-acompanhando o progresso e o log.
-
-O trabalho pesado roda em :class:`_FlashJob`, uma ``QThread`` — a interface
-não pode congelar durante os ~20 s de gravação. Durante a gravação o
-enlace serial do aplicativo fica pausado (o esptool precisa da porta com
-acesso exclusivo) e a página não pode ser deixada: ver :meth:`FlashPage.leave`.
+A gravação roda em :class:`_FlashJob` (QThread) com o enlace serial pausado,
+pois o esptool precisa da porta com acesso exclusivo.
 """
 
 from __future__ import annotations
@@ -120,8 +114,7 @@ class _FlashJob(QThread):
 class FlashPage(Page):
     """Página "Gravar firmware".
 
-    ``running_changed`` avisa a janela quando a gravação começa e termina,
-    para ela travar a troca de porta enquanto o esptool usa a COM.
+    ``running_changed`` deixa a janela travar a troca de porta durante a gravação.
     """
 
     running_changed = Signal(bool)
@@ -153,8 +146,6 @@ class FlashPage(Page):
         self._refresh_enabled()
         # Consultar já na abertura poupa um clique no caminho mais comum.
         self._check_release()
-
-    # ------------------------------------------------------------- montagem
 
     def _build_device_box(self) -> QWidget:
         box, column = self.card(
@@ -255,8 +246,6 @@ class FlashPage(Page):
         self._flash_button.clicked.connect(self._start)
         self.header.addWidget(self._flash_button)
 
-    # ---------------------------------------------------------------- portas
-
     def _reload_ports(self, preselect: str | None) -> None:
         current = preselect or self._port_combo.currentData()
         self._port_combo.clear()
@@ -268,8 +257,6 @@ class FlashPage(Page):
         if index >= 0:
             self._port_combo.setCurrentIndex(index)
         self._refresh_enabled()
-
-    # --------------------------------------------------------------- release
 
     def _check_release(self) -> None:
         if self._query is not None and self._query.isRunning():
@@ -301,10 +288,8 @@ class FlashPage(Page):
             elif release.version == self._device_version:
                 text += "  •  já é a versão gravada no dispositivo."
             elif firmware_release.is_newer(self._device_version, release.version):
-                # Gravar o release voltaria o aparelho a uma versão anterior —
-                # foi assim que um firmware 2.0.0, com a pinagem antiga, foi
-                # gravado por cima do 2.0.1 e embaralhou as teclas. O arquivo
-                # local passa a ser a opção marcada.
+                # Evita downgrade: um 2.0.0 (pinagem antiga) gravado sobre o
+                # 2.0.1 já embaralhou as teclas.
                 text += (
                     f"  •  MAIS ANTIGO que o firmware do dispositivo "
                     f"({self._device_version}); gravar voltaria a uma versão "
@@ -317,12 +302,9 @@ class FlashPage(Page):
     def _on_release_failed(self, message: str) -> None:
         self._release = None
         self._release_label.setText(message.splitlines()[0])
-        # Sem release utilizável, o arquivo local é o único caminho: mudar a
-        # seleção evita que o usuário clique em "Gravar" e leve outro erro.
+        # Sem release utilizável, o arquivo local é o único caminho.
         self._file_radio.setChecked(True)
         self._refresh_enabled()
-
-    # ----------------------------------------------------------- arquivo local
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -340,8 +322,6 @@ class FlashPage(Page):
     def _local_path(self) -> Path | None:
         text = self._file_edit.text().strip()
         return Path(text) if text else None
-
-    # ---------------------------------------------------------------- estado
 
     def _refresh_enabled(self) -> None:
         running = self._job is not None and self._job.isRunning()
@@ -378,8 +358,6 @@ class FlashPage(Page):
             self._offset_label.setText("")
         self._offset_label.setVisible(bool(self._offset_label.text()))
 
-    # -------------------------------------------------------------- gravação
-
     def _start(self) -> None:
         port = self._port_combo.currentData()
         if not port:
@@ -393,7 +371,6 @@ class FlashPage(Page):
         self._link_paused = self._core.pause_link()
 
         release = self._release if self._release_radio.isChecked() else None
-        # A versão vai para a mensagem de sucesso; um .bin local não tem uma.
         self._job_version = release.version if release is not None else ""
         job = _FlashJob(
             port=str(port),
@@ -412,8 +389,7 @@ class FlashPage(Page):
 
         self._flash_button.setVisible(False)
         self._cancel_button.setVisible(True)
-        # Primeiro o job: ``_refresh_enabled`` olha ``isRunning()`` para
-        # travar Voltar, porta e origens.
+        # Primeiro o job: ``_refresh_enabled`` olha ``isRunning()``.
         job.start()
         self._set_running(True)
 
@@ -482,14 +458,8 @@ class FlashPage(Page):
             self._link_paused = False
             self._core.resume_link()
 
-    # ----------------------------------------------------------------- ciclo
-
     def leave(self) -> bool:
-        """Chamado pela janela antes de sair da página.
-
-        Recusa no meio da gravação — sair agora tijolaria o chip — e, fora
-        dela, devolve a porta ao enlace do aplicativo.
-        """
+        """Recusa sair no meio da gravação; fora dela, devolve a porta ao enlace."""
         if self._job is not None and self._job.isRunning():
             QMessageBox.warning(
                 self,

@@ -85,7 +85,6 @@ class ApagarPerfisTest(Dados):
         self.assertEqual([p.name for p in store.profiles], ["Sistema"])
         self.assertEqual(store.active_profile_id, store.profiles[0].id)
         self.assertFalse(store.icons_dir.exists())
-        # As configurações não mudam.
         self.assertEqual(store.settings.obs_host, "estudio")
         salvo = json.loads((self.dados / "config.json").read_text(encoding="utf-8"))
         self.assertEqual([p["name"] for p in salvo["profiles"]], ["Sistema"])

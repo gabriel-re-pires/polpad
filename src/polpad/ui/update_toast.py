@@ -1,13 +1,8 @@
 """Aviso de atualização no canto inferior direito da tela.
 
-Janela própria, sem moldura e sempre por cima, que não rouba o foco de
-quem está digitando. Aparece mesmo com o Polpad escondido na bandeja.
-O mesmo aviso mostra versão nova, instalação pendente, progresso,
-resultado de uma troca e erros.
-
-Os avisos informativos ficam 5 s na tela (ou enquanto o mouse estiver
-em cima) e vão para a central de notificações do sistema; progresso e
-erros ficam até o usuário agir.
+Janela sem moldura, sempre por cima e sem roubar o foco; aparece mesmo com o
+Polpad na bandeja. Avisos informativos somem após 5 s (exceto com o mouse em
+cima); progresso e erros ficam até o usuário agir.
 """
 
 from __future__ import annotations
@@ -67,7 +62,7 @@ class UpdateToast(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(WIDTH)
         self._action = ""
-        # Guarda o aviso na central de notificações (ver notification_center).
+        # Repassa o aviso à central de notificações (ver notification_center).
         self._notify = notify
         self._auto_hide = False
         self.hide_timer = QTimer(self)
@@ -102,7 +97,6 @@ class UpdateToast(QWidget):
         self.action_button = QPushButton()
         self.action_button.setObjectName("primary")
         self.action_button.clicked.connect(self._on_action)
-        # "Ver novidades" à esquerda e o botão encostado à direita, na mesma linha.
         actions = QHBoxLayout()
         actions.setSpacing(12)
         actions.addWidget(self.details_link, 0, Qt.AlignVCenter)
@@ -125,8 +119,6 @@ class UpdateToast(QWidget):
     def current_action(self) -> str:
         """O que o botão faz agora: "update", "install_now", "retry", "flash" ou ""."""
         return self._action
-
-    # ------------------------------------------------------------ estados
 
     def show_available(self, version: str, current: str) -> None:
         self._show(
@@ -185,8 +177,6 @@ class UpdateToast(QWidget):
         self.details_link.hide()
         self.close_button.hide()
         self._place()
-
-    # ------------------------------------------------------------ interno
 
     def _show(
         self,

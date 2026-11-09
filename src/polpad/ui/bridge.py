@@ -1,15 +1,8 @@
 """Ponte entre threads de backend e a thread da interface Qt.
 
-Os callbacks do enlace serial e do motor de ações executam em threads
-próprias. Emitir um sinal Qt de outra thread é seguro, mas a entrega só
-acontece na thread da UI quando o RECEPTOR é um QObject que vive nela —
-aí o Qt usa uma conexão "queued". Ligar o sinal a uma função solta, ou a
-um método de um objeto que não seja QObject, produz conexão DIRETA: o
-código executa na thread que emitiu.
-
-Por isso existe :class:`UiRelay`. Quem trata as mensagens do dispositivo
-em código livre de Qt (o ``Controller``) liga o sinal a um relay criado
-na thread da interface, e não diretamente ao próprio método.
+O sinal só é entregue na thread da UI ("queued") se o receptor for um QObject
+que vive nela; ligado a função solta ou a objeto comum, a conexão é direta e
+roda na thread que emitiu. Por isso o ``Controller`` usa um :class:`UiRelay`.
 """
 
 from __future__ import annotations
@@ -38,12 +31,7 @@ class DeviceBridge(QObject):
 
 
 class UiRelay(QObject):
-    """Encaminha mensagens para um callback, sempre na thread da UI.
-
-    Instancie na thread da interface. Como o relay é um QObject que mora
-    nela, a conexão ``message -> deliver`` vira "queued" quando o sinal
-    parte de outra thread, e ``handler`` executa na thread da UI.
-    """
+    """Encaminha mensagens a um callback na thread da UI; instancie nela."""
 
     def __init__(self, handler: Callable[[dict[str, Any]], None]) -> None:
         super().__init__()

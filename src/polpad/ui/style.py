@@ -1,27 +1,15 @@
-"""Sistema visual do configurador: tokens de design e folha de estilo (QSS).
+"""Tokens de design e folha de estilo (QSS) do configurador.
 
-Tokens em três níveis, como nos design systems de referência:
-
-* **referência** — a paleta crua (``INK_*``, ``VIOLET_*``…);
-* **semânticos** — o papel de cada cor (``BG_APP``, ``ACCENT``…), que é o
-  que os componentes usam;
-* **componente** — decisões locais (raio da tecla, altura do controle),
-  escritas junto ao componente que as usa.
-
-Nenhum widget deve escrever um hexadecimal próprio: importa daqui. Assim
-uma mudança de tema é uma mudança neste arquivo.
-
-Direção: o aplicativo é o "estúdio" do aparelho. O fundo é grafite
-quase neutro (sem o preto puro, que cansa) e a única cor de ação é o
-roxo do ícone do polvo (#7A2EF0). O ciano fica reservado ao display
-OLED — é a cor física dos pixels do SSD1306, não uma cor de interface.
+Widgets não escrevem hexadecimal próprio: importam daqui, então trocar o tema
+é mexer só neste arquivo. Roxo (#7A2EF0) é a única cor de ação; o ciano é
+reservado ao OLED (cor física dos pixels do SSD1306).
 """
 
 from __future__ import annotations
 
 from string import Template
 
-# ------------------------------------------------------------- referência
+# Paleta crua
 INK_0 = "#0C0D11"   # fundo da janela
 INK_1 = "#13151B"   # painéis laterais
 INK_2 = "#1A1D25"   # cartões, campos
@@ -31,7 +19,6 @@ INK_5 = "#3A404D"   # bordas fortes
 FOG_0 = "#EDEFF4"   # texto principal
 FOG_1 = "#A3A9B8"   # texto secundário
 FOG_2 = "#7E8497"   # texto terciário, dicas (4,5:1 sobre INK_1)
-# Roxo da marca (o do ícone do polvo, #7A2EF0) e seus tons de interação.
 VIOLET_4 = "#9558F5"
 VIOLET_5 = "#7A2EF0"
 VIOLET_6 = "#6421D1"
@@ -40,7 +27,7 @@ CORAL_5 = "#FF6B7A"
 AMBER_5 = "#F5B651"
 CYAN_OLED = "#8FE6FF"
 
-# -------------------------------------------------------------- semânticos
+# Papéis semânticos (o que os componentes usam)
 BG_APP = INK_0
 BG_PANEL = INK_1
 BG_SURFACE = INK_2
@@ -62,7 +49,6 @@ WARNING = AMBER_5
 OLED_LIT = CYAN_OLED
 OLED_OFF = "#0A1014"
 
-# ---------------------------------------------------------------- tipografia
 FONT_FAMILY = '"Segoe UI Variable Text", "Segoe UI", "Inter", sans-serif'
 FONT_DISPLAY = '"Segoe UI Variable Display", "Segoe UI", sans-serif'
 SIZE_SMALL = 12
@@ -70,7 +56,6 @@ SIZE_BODY = 13
 SIZE_TITLE = 15
 SIZE_HEADLINE = 20
 
-# ---------------------------------------------------------------- forma
 RADIUS_CONTROL = 8
 RADIUS_CARD = 14
 
@@ -88,7 +73,6 @@ QMainWindow, QDialog, QMessageBox, QInputDialog { background-color: $BG_APP; }
 QWidget#appRoot { background-color: $BG_APP; }
 QDialog#embeddedEditor { background-color: transparent; }
 
-/* ------------------------------------------------------------ superfícies */
 QFrame#sidebar {
     background-color: $BG_PANEL;
     border-right: 1px solid $BORDER;
@@ -119,7 +103,6 @@ QLabel#dangerTitle {
 }
 QFrame#divider { background-color: $BORDER; max-height: 1px; min-height: 1px; }
 
-/* ---------------------------------------------------------------- texto */
 QLabel#appTitle {
     font-family: $FONT_DISPLAY;
     font-size: 17px;
@@ -146,7 +129,6 @@ QLabel#mono {
     color: $TEXT;
 }
 
-/* --------------------------------------------------------- selo de status */
 QLabel#pill {
     background-color: $BG_SURFACE;
     border: 1px solid $BORDER;
@@ -163,7 +145,6 @@ QLabel#pill[tone="accent"] {
     border-color: rgba(122, 46, 240, 0.45);
 }
 
-/* ---------------------------------------------------------------- botões */
 QPushButton, QToolButton {
     background-color: $BG_SURFACE;
     border: 1px solid $BORDER;
@@ -219,8 +200,7 @@ QToolButton#iconButton:checked {
     background-color: $ACCENT_SOFT;
     border-color: rgba(122, 46, 240, 0.50);
 }
-/* Botão que é só o ícone (recolher colunas): sem caixa; o ícone clareia
-   ao passar o mouse e o contorno aparece só com foco de teclado. */
+/* Só o ícone (recolher colunas): contorno aparece apenas com foco de teclado. */
 QToolButton#bareIcon {
     background-color: transparent;
     border: 1px solid transparent;
@@ -233,7 +213,6 @@ QToolButton#bareIcon:hover, QToolButton#bareIcon:pressed {
 }
 QToolButton#bareIcon:focus { border-color: $ACCENT; }
 QToolButton::menu-indicator { image: none; width: 0; }
-/* X do aviso de atualização: só o símbolo, vermelho, sem caixa em volta. */
 QToolButton#toastClose {
     color: $DANGER;
     border: none;
@@ -248,7 +227,6 @@ QToolButton#toastClose:hover, QToolButton#toastClose:pressed {
     border: none;
 }
 
-/* Controle segmentado (dois botões exclusivos lado a lado). */
 QPushButton#segment {
     background-color: $BG_PANEL;
     border-radius: 0;
@@ -272,7 +250,6 @@ QPushButton#segment:checked {
 }
 QPushButton#segment[pos="last"]:checked { border-left: 1px solid $ACCENT; }
 
-/* --------------------------------------------------------------- campos */
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QKeySequenceEdit {
     background-color: $BG_PANEL;
     border: 1px solid $BORDER;
@@ -300,8 +277,8 @@ QComboBox::down-arrow {
     height: 12px;
     margin-right: 10px;
 }
-/* O popup do combo é uma janela própria: sem fundo explícito, herdaria o
-   "transparent" global e mostraria cantos pretos. */
+/* O popup é janela própria: sem fundo explícito herdaria o "transparent"
+   global e mostraria cantos pretos. */
 QComboBoxPrivateContainer {
     background-color: $BG_RAISED;
     border: 1px solid $BORDER_STRONG;
@@ -325,7 +302,6 @@ QComboBox QAbstractItemView::item:selected {
 }
 QSpinBox::up-button, QSpinBox::down-button { width: 16px; border: none; }
 
-/* ---------------------------------------------------------------- listas */
 QListWidget {
     background-color: $BG_PANEL;
     border: 1px solid $BORDER;
@@ -338,7 +314,6 @@ QListWidget::item:hover { background-color: $BG_RAISED; }
 QListWidget::item:selected { background-color: $ACCENT_SOFT; color: $TEXT; }
 QListView#profileList { background-color: transparent; border: none; padding: 0; }
 
-/* ---------------------------------------------- caixas de opção e grupos */
 QCheckBox, QRadioButton { spacing: 9px; background: transparent; }
 QCheckBox::indicator, QRadioButton::indicator {
     width: 16px;
@@ -371,7 +346,6 @@ QGroupBox::title {
     color: $TEXT_MUTED;
 }
 
-/* ------------------------------------------------------------ progresso */
 QProgressBar {
     background-color: $BG_PANEL;
     border: 1px solid $BORDER;
@@ -382,7 +356,6 @@ QProgressBar {
 }
 QProgressBar::chunk { background-color: $ACCENT; border-radius: 5px; }
 
-/* --------------------------------------------------------- menus e dicas */
 QMenu {
     background-color: $BG_RAISED;
     border: 1px solid $BORDER_STRONG;
@@ -402,7 +375,6 @@ QToolTip {
     padding: 6px 8px;
 }
 
-/* -------------------------------------------------------------- rolagem */
 QScrollArea { border: none; background: transparent; }
 QScrollBar:vertical { width: 10px; background: transparent; margin: 2px; }
 QScrollBar:horizontal { height: 10px; background: transparent; margin: 2px; }
@@ -425,13 +397,10 @@ QDialogButtonBox QPushButton { min-width: 84px; }
 )
 
 
-
 def _chevron_png() -> str:
-    """Desenha a seta dos combos em um PNG (a QSS só aceita imagem por URL).
+    """Seta dos combos em PNG no temp (a QSS só aceita imagem por URL).
 
-    Precisa de um ``QGuiApplication`` já criado. O arquivo vai para a
-    pasta temporária: é regenerado a cada execução e não precisa ser
-    empacotado com o executável.
+    Precisa de um ``QGuiApplication`` já criado.
     """
     import tempfile
     from pathlib import Path

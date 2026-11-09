@@ -1,9 +1,7 @@
 """Persistência de perfis e configurações em JSON.
 
-Os dados ficam em ``%APPDATA%/Polpad`` (ou ``~/.config`` em
-outros sistemas). As imagens de ícone escolhidas pelo usuário são copiadas
-para o subdiretório ``icons/`` para que o perfil continue funcionando caso
-o arquivo original seja movido.
+Dados em ``%APPDATA%/Polpad`` (``~/.config`` fora do Windows); os ícones são
+copiados para ``icons/`` para sobreviver ao original ser movido.
 """
 
 from __future__ import annotations
@@ -32,10 +30,7 @@ log = logging.getLogger(__name__)
 
 
 class SecretVault(Protocol):
-    """Cofre de credenciais (ver :mod:`polpad.core.secrets`).
-
-    Injetável para que os testes não toquem no Credential Manager real.
-    """
+    """Cofre de credenciais (:mod:`polpad.core.secrets`); injetável nos testes."""
 
     def store(self, name: str, value: str) -> bool: ...
     def load(self, name: str) -> str | None: ...
@@ -63,35 +58,27 @@ class Store:
         self.settings = Settings()
         self.profiles: list[Profile] = []
         self.active_profile_id: str | None = None
-        # Definido pela raiz de composição para levar falhas de gravação à
-        # interface; sem ele, restam apenas as mensagens no log.
+        # Leva falhas de gravação à interface (definido em app.py).
         self.on_error: Callable[[str], None] | None = None
-        # Serializa as gravações. save() é chamado tanto pela interface
-        # quanto pelo caminho do dispositivo (tecla de modo), e duas
-        # gravações simultâneas no mesmo temporário deixavam a
-        # configuração pela metade.
+        # save() vem da interface e do dispositivo (tecla de modo); gravações
+        # simultâneas deixavam a configuração pela metade.
         self._write_lock = threading.RLock()
-        # Segredos que o cofre não deixou ler. Enquanto continuarem vazios
-        # em memória, save() não os apaga do cofre.
+        # Segredos que o cofre não deixou ler: vazios, save() não os apaga.
         self._unreadable: set[str] = set()
-
-    # ------------------------------------------------------------------ IO
 
     def load(self) -> None:
         """Carrega a configuração, aproveitando o máximo possível.
 
-        Um arquivo parcialmente corrompido não deve custar todos os perfis
-        do usuário: cada perfil inválido é descartado isoladamente e o
-        arquivo original é preservado em ``.json.bak`` sempre que algo se
-        perde. Falhar aqui nunca impede o aplicativo de abrir.
+        Perfis inválidos são descartados um a um, e o original vai para
+        ``.json.bak`` se algo se perder. Nunca impede o app de abrir.
         """
         path = self.data_dir / _CONFIG_FILE
         if not path.exists():
             self._create_default()
             return
         try:
-            # utf-8-sig: editores como o Bloco de Notas gravam com BOM.
-            # ValueError cobre JSON inválido e texto fora de UTF-8.
+            # utf-8-sig: o Bloco de Notas grava com BOM. ValueError cobre JSON
+            # inválido e texto fora de UTF-8.
             data = json.loads(path.read_text(encoding="utf-8-sig"))
         except (ValueError, OSError) as exc:
             log.warning("configuração ilegível (%s); recomeçando do padrão", exc)
@@ -105,8 +92,7 @@ class Store:
             return
 
         self.settings, settings_ok = _settings_from_dict(data.get("settings"))
-        # Versões anteriores tinham um display só, nas configurações: os
-        # perfis salvos sem configuração própria herdam aquele.
+        # Perfis sem display próprio herdam o display global das versões antigas.
         legado = DisplayConfig.from_legacy_settings(data.get("settings"))
         self.profiles, discarded = _profiles_from_dict(data.get("profiles"), legado)
         if not settings_ok or discarded:
@@ -122,8 +108,6 @@ class Store:
             self.active_profile_id = self.profiles[0].id
         self._migrate_mode_switch_bindings()
 
-    # ------------------------------------------------------ tecla de modo
-
     def mode_switch_conflicts(self, key: int) -> list[str]:
         """Perfis em que ``key`` tem uma ação que a tecla de modo esconderia."""
         return [
@@ -135,11 +119,8 @@ class Store:
     def promote_to_mode_key(self, key: int) -> None:
         """Faz de ``key`` a tecla de modo, válida em todos os perfis.
 
-        A ação "Alternar perfil" presa a um perfil só criava um beco sem
-        saída: no perfil seguinte a mesma tecla não tinha ação e não havia
-        como voltar ao primeiro. A tecla de modo vale em todos os perfis e
-        percorre a lista em ciclo (:meth:`next_profile`). As ações
-        "Alternar perfil" daquela tecla saem (são redundantes); ações de
+        "Alternar perfil" num perfil só era beco sem saída (o seguinte não
+        tinha como voltar). As ações "Alternar perfil" da tecla saem; as de
         outro tipo ficam guardadas e voltam se a tecla de modo mudar.
         """
         self.settings.mode_key = key
@@ -151,8 +132,7 @@ class Store:
     def _migrate_mode_switch_bindings(self) -> None:
         """Converte "Alternar perfil" de versões anteriores em tecla de modo.
 
-        Só quando não há tecla de modo e todas as ações "Alternar perfil"
-        estão na mesma tecla — aí a intenção é inequívoca.
+        Só se não há tecla de modo e todas essas ações estão na mesma tecla.
         """
         if self.settings.mode_key is not None:
             return
@@ -169,13 +149,10 @@ class Store:
         self.promote_to_mode_key(key)
         self.save()
 
-    # ---------------------------------------------------------- segredos
-
     def _load_secrets(self) -> None:
         """Completa as credenciais a partir do cofre do sistema.
 
-        Um valor ainda presente no arquivo (instalação anterior à mudança)
-        tem precedência e é migrado para o cofre no próximo ``save()``.
+        Valor ainda no arquivo (instalação antiga) vence e migra no ``save()``.
         """
         self._unreadable.clear()
         for campo in _SECRET_FIELDS:
@@ -187,40 +164,28 @@ class Store:
                 setattr(self.settings, campo, valor)
 
     def _store_secrets(self, data: dict[str, Any]) -> None:
-        """Move as credenciais do dicionário a salvar para o cofre.
-
-        O que for guardado no cofre sai do JSON; o que não puder ser
-        guardado continua no arquivo, para não perder a configuração.
-        """
+        """Move as credenciais para o cofre; o que ele recusar fica no JSON."""
         settings_data = data.get("settings")
         if not isinstance(settings_data, dict):
             return
         for campo in _SECRET_FIELDS:
             valor = getattr(self.settings, campo)
             if not valor and campo in self._unreadable:
-                # Vazio só porque o cofre falhou na leitura: apagar agora
-                # perderia o segredo que continua lá.
+                # Vazio só porque a leitura falhou: não apagar do cofre.
                 continue
             if self._vault.store(campo, valor):
                 settings_data[campo] = ""
                 self._unreadable.discard(campo)
 
     def _backup(self, path: Path) -> None:
-        """Preserva o arquivo original antes de sobrescrevê-lo.
-
-        Se nem a cópia for possível, ainda é melhor abrir o aplicativo do
-        que impedir seu uso.
-        """
+        """Preserva o original antes de sobrescrevê-lo (falha é ignorada)."""
         with contextlib.suppress(OSError):
             shutil.copy(path, path.with_suffix(".json.bak"))
 
     def save(self) -> bool:
         """Grava a configuração de forma atômica. ``False`` se não conseguiu.
 
-        Chamado a cada troca de perfil (inclusive pela tecla de modo), então
-        uma falha de disco não pode derrubar o aplicativo: é registrada e
-        reportada, e o macropad continua funcionando com o estado em
-        memória.
+        Roda a cada troca de perfil: falha de disco é só registrada e reportada.
         """
         data: dict[str, Any] = {
             "settings": self.settings.to_dict(),
@@ -230,10 +195,8 @@ class Store:
         self._store_secrets(data)
         path = self.data_dir / _CONFIG_FILE
         tmp: Path | None = None
-        # O temporário tem nome único. Com um nome fixo (.json.tmp), duas
-        # gravações concorrentes escreviam no mesmo arquivo e o segundo
-        # replace() promovia um JSON truncado a configuração oficial, ou
-        # falhava com FileNotFoundError.
+        # Temporário de nome único: com nome fixo, gravações concorrentes
+        # promoviam um JSON truncado ou davam FileNotFoundError.
         with self._write_lock:
             try:
                 self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -249,7 +212,6 @@ class Store:
                 tmp = None
             except OSError as exc:
                 log.error("falha ao salvar %s: %s", path, exc)
-                # Não deixa para trás um arquivo temporário pela metade.
                 if tmp is not None:
                     with contextlib.suppress(OSError):
                         tmp.unlink(missing_ok=True)
@@ -260,8 +222,7 @@ class Store:
 
     def _create_default(self) -> None:
         self.settings = Settings()
-        # O config.json pode ter sumido ou estragado, mas os segredos no
-        # cofre continuam valendo; sem isto o save() abaixo os apagaria.
+        # Os segredos do cofre continuam valendo; sem isto o save() os apagaria.
         self._load_secrets()
         self.profiles = []
         self._create_default_profile()
@@ -285,8 +246,6 @@ class Store:
             type="hotkey", params={"keys": ["ctrl", "v"]}, label="Colar"
         )
         self.profiles.append(profile)
-
-    # ------------------------------------------------------------ profiles
 
     def profile_by_id(self, profile_id: str | None) -> Profile | None:
         for p in self.profiles:
@@ -316,15 +275,11 @@ class Store:
         """Perfil seguinte na ordem da lista (usado pela tecla de modo)."""
         ids = [p.id for p in self.profiles]
         current = self.active_profile_id
-        # Sem perfil ativo (ou apontando para um já excluído): começa do
-        # primeiro da lista.
         idx = ids.index(current) if current in ids else -1
         profile = self.profiles[(idx + 1) % len(self.profiles)]
         self.active_profile_id = profile.id
         self.save()
         return profile
-
-    # ------------------------------------------------- troca de perfis
 
     def export_profile(self, profile: Profile, destino: Path) -> None:
         """Grava o perfil em um arquivo de troca (com o ícone embutido)."""
@@ -341,22 +296,18 @@ class Store:
                 destino.write_bytes(importado.icon_bytes)
                 profile.icon_path = str(destino)
             except OSError as exc:
-                # Sem o ícone o perfil ainda é útil: o display mostra o nome.
                 log.warning("não foi possível gravar o ícone importado: %s", exc)
         self.profiles.append(profile)
         self.save()
         return profile
 
-    #: Extensões aceitas como ícone. O filtro do QFileDialog é só
-    #: sugestão: o usuário pode digitar qualquer nome de arquivo.
+    #: Extensões aceitas como ícone (o filtro do QFileDialog é só sugestão).
     ICON_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
 
     def import_icon(self, source: str, profile: Profile) -> str:
-        """Copia a imagem escolhida para o diretório de dados e a associa ao perfil.
+        """Valida, copia a imagem para o diretório de dados e a associa ao perfil.
 
-        Valida a imagem ANTES de copiar. Levanta ``OSError`` ou
-        ``ValueError`` quando o arquivo não serve; quem chama mostra a
-        mensagem ao usuário.
+        Levanta ``OSError`` ou ``ValueError`` quando o arquivo não serve.
         """
         ext = Path(source).suffix.lower()
         if ext not in self.ICON_SUFFIXES:
@@ -364,10 +315,8 @@ class Store:
                 f"formato não suportado ({ext or 'sem extensão'}); "
                 f"use {', '.join(self.ICON_SUFFIXES)}"
             )
-        # Falha aqui, com o arquivo original, antes de sujar o diretório de
-        # dados. O Pillow levanta tipos variados em imagem corrompida,
-        # inclusive DecompressionBombError, que não é OSError nem
-        # ValueError e escaparia dos tratamentos a jusante.
+        # O Pillow levanta tipos variados (ex.: DecompressionBombError, que não
+        # é OSError nem ValueError e escaparia de quem chama).
         try:
             icons.validar_imagem(source)
         except (OSError, ValueError):
@@ -386,9 +335,6 @@ class Store:
             with contextlib.suppress(OSError):
                 Path(anterior).unlink(missing_ok=True)
         return str(dest)
-
-
-# ------------------------------------------------- desserialização tolerante
 
 
 def _settings_from_dict(raw: Any) -> tuple[Settings, bool]:

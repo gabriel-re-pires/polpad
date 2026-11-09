@@ -6,12 +6,8 @@ from typing import Any
 
 
 class CofreFalso:
-    """Cofre de credenciais em memória.
-
-    Os testes precisam de um: o cofre real é o Credential Manager do
-    usuário, e salvar uma configuração de teste apagaria as credenciais
-    verdadeiras dele.
-    """
+    """Cofre em memória: salvar uma configuração de teste no cofre real
+    apagaria as credenciais do usuário."""
 
     def __init__(self, disponivel: bool = True) -> None:
         self.disponivel = disponivel
@@ -64,10 +60,7 @@ class RespostaFalsa:
 
 
 class ClienteFalso:
-    """Substitui o ``requests`` nos testes (nenhuma rede é tocada).
-
-    Recebe uma resposta única ou um dicionário URL → resposta.
-    """
+    """Substitui o ``requests``: uma resposta única ou um dict URL → resposta."""
 
     def __init__(
         self, resposta: RespostaFalsa | Exception | dict[str, RespostaFalsa | Exception]

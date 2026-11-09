@@ -1,8 +1,4 @@
-"""Decisões do atualizador, sem efeitos colaterais.
-
-Tudo aqui recebe o que precisa (relógio incluído) e devolve uma decisão:
-é a parte que se testa por inteiro sem rede, sem Qt e sem arquivos.
-"""
+"""Decisões do atualizador, sem efeitos colaterais (relógio vem por parâmetro)."""
 
 from __future__ import annotations
 

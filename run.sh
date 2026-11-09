@@ -1,6 +1,5 @@
 #!/bin/sh
-# Inicia o Polpad a partir do código, sem prender o terminal (como o run.bat).
-# O log fica em ~/.config/Polpad/logs/polpad.log.
+# Inicia o Polpad pelo código sem prender o terminal; log em ~/.config/Polpad/logs/.
 cd "$(dirname "$0")" || exit 1
 if [ ! -x .venv/bin/python ]; then
     echo "Ambiente virtual ausente. Crie com:" >&2

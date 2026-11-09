@@ -1,10 +1,7 @@
 """Ladrilho quadrado do perfil: a imagem do ícone ou as iniciais do nome.
 
-A imagem preenche o quadrado inteiro ("cover"): é ampliada até cobrir os
-dois lados e recortada no centro, sem deformar. A escala é feita a partir
-do arquivo original, direto no tamanho físico da tela (considerando o
-fator de escala do Windows), com filtragem suave — por isso não perde
-qualidade nem fica serrilhada.
+A imagem cobre o quadrado (recorte central) e é escalada do original direto
+no tamanho físico da tela, para não perder qualidade.
 """
 
 from __future__ import annotations
@@ -55,7 +52,6 @@ def tile(icon_path: str | None, name: str, size: int, ratio: float = 1.0) -> QPi
 
     image = QImage(icon_path) if icon_path else QImage()
     if not image.isNull():
-        # Cobre o quadrado (KeepAspectRatioByExpanding) e recorta o centro.
         scaled = image.scaled(
             physical, physical, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
         )

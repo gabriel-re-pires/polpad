@@ -1,8 +1,6 @@
 """Tipos de ação embutidos.
 
-Cada função registrada aqui é um "executor" (ver ``actions.base``).
-Executam na thread de ações do :class:`~polpad.actions.executor.ActionRunner`,
-nunca na thread da interface.
+Rodam nas threads do :class:`~polpad.actions.executor.ActionRunner`, nunca na da UI.
 """
 
 from __future__ import annotations
@@ -39,7 +37,6 @@ def run_hotkey(params: dict[str, Any], ctx: ActionContext) -> None:
         resolved = [keys.resolve(n) for n in names]
     except ValueError as exc:
         raise ActionError(str(exc)) from exc
-    # strict=True: resolved vem de names, então têm o mesmo comprimento.
     pares = list(zip(resolved, names, strict=True))
     modifiers = [k for k, n in pares if n.lower() in keys.MODIFIERS]
     others = [k for k, n in pares if n.lower() not in keys.MODIFIERS]
@@ -89,13 +86,8 @@ def run_command(params: dict[str, Any], ctx: ActionContext) -> None:
             subprocess.CREATE_NEW_CONSOLE if visible else subprocess.CREATE_NO_WINDOW
         )
         if visible:
-            # /k mantém o terminal aberto para o usuário ver a saída.
-            #
-            # Não use /s aqui: sem ele o cmd preserva as aspas do invólucro
-            # quando o conteúdo é um executável com espaço no caminho, o que
-            # faz um comando como C:\Program Files\app.exe (digitado sem
-            # aspas) funcionar. Com /s o cmd sempre remove a primeira e a
-            # última aspa e esse caso passa a falhar — verificado.
+            # /k mantém o terminal aberto. Sem /s: com ele o cmd remove as
+            # aspas e C:\Program Files\app.exe digitado sem aspas falha.
             command = f'cmd /k "{command}"'
     elif visible:
         argv = _terminal_argv(command, cwd)
@@ -111,13 +103,9 @@ def run_command(params: dict[str, Any], ctx: ActionContext) -> None:
             raise ActionError(f"falha ao executar comando: {exc}") from exc
         return
     try:
-        # shell=True é intencional: o comando é escrito pelo próprio usuário
-        # na sua máquina (equivalente a digitá-lo no terminal) e pode conter
-        # pipes/&&; não há entrada de terceiros aqui. Perfis importados de
-        # fontes externas devem ser revisados (ver docs/ARQUITETURA.md).
-        #
-        # start_new_session (ignorado no Windows): o comando não morre junto
-        # com o aplicativo nem recebe o Ctrl+C do terminal que o abriu.
+        # shell=True: comando do próprio usuário, pode ter pipes/&& (perfis
+        # importados são revisados, ver docs/ARQUITETURA.md).
+        # start_new_session: não morre com o app nem recebe o Ctrl+C dele.
         subprocess.Popen(  # noqa: S602 — shell=True intencional, ver acima
             command,
             shell=True,
@@ -129,8 +117,7 @@ def run_command(params: dict[str, Any], ctx: ActionContext) -> None:
         raise ActionError(f"falha ao executar comando: {exc}") from exc
 
 
-# Emuladores de terminal conhecidos e o argumento que precede o programa a
-# executar dentro deles. O primeiro encontrado no PATH é usado.
+# Terminal e o argumento que precede o programa; vale o primeiro no PATH.
 _TERMINALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("x-terminal-emulator", ("-e",)),
     ("xfce4-terminal", ("-x",)),
@@ -144,12 +131,10 @@ _TERMINALS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def _terminal_argv(command: str, cwd: str | None = None) -> list[str] | None:
-    """Abre ``command`` num terminal que continua aberto ao final (Linux).
+    """Abre ``command`` num terminal que segue aberto (``cmd /k`` do Linux).
 
-    Equivale ao ``cmd /k`` do Windows: depois do comando o terminal segue
-    num shell interativo, para o usuário ver a saída. O ``cd`` explícito
-    existe porque alguns terminais (xfce4-terminal, gnome-terminal) reusam
-    uma instância já aberta, que não herda a pasta deste processo.
+    O ``cd`` explícito é porque xfce4-terminal e gnome-terminal reusam uma
+    instância já aberta, que não herda a pasta deste processo.
     """
     shell = os.environ.get("SHELL") or "/bin/sh"
     script = f"{command}\nexec {shlex.quote(shell)}"
@@ -182,7 +167,7 @@ def run_launch(params: dict[str, Any], ctx: ActionContext) -> None:
             raise ActionError(f"falha ao abrir {target!r}: {exc}") from exc
     argv = _launch_argv(target)
     try:
-        # O alvo foi escolhido pelo usuário (seletor de arquivos ou digitado).
+        # Alvo escolhido pelo usuário.
         subprocess.Popen(argv, start_new_session=True)  # noqa: S603
     except OSError as exc:
         raise ActionError(f"falha ao abrir {target!r}: {exc}") from exc
@@ -191,9 +176,7 @@ def run_launch(params: dict[str, Any], ctx: ActionContext) -> None:
 def _launch_argv(target: str) -> list[str]:
     """Como abrir ``target`` fora do Windows, à semelhança do ``os.startfile``.
 
-    Aceita um caminho (programa, atalho ``.desktop``, arquivo ou pasta) ou o
-    nome de um programa do PATH com argumentos, como ``code ~/projeto`` —
-    o equivalente a apontar para o ``.exe`` no Windows.
+    Aceita um caminho ou um programa do PATH com argumentos (``code ~/projeto``).
     """
     path = Path(target).expanduser()
     if path.exists():
@@ -201,7 +184,6 @@ def _launch_argv(target: str) -> list[str]:
             return ["gio", "launch", str(path)]
         if path.is_file() and _is_program(path):
             return [str(path)]
-        # "xdg-open" abre com o aplicativo padrão do sistema.
         return ["xdg-open", str(path)]
     try:
         argv = shlex.split(target)
@@ -213,10 +195,9 @@ def _launch_argv(target: str) -> list[str]:
 
 
 def _is_program(path: Path) -> bool:
-    """Programa de verdade (ELF ou script com ``#!``), não só um arquivo com +x.
+    """Programa de verdade (ELF ou ``#!``), não só um arquivo com +x.
 
-    Partições NTFS e FAT montadas costumam marcar todo arquivo como
-    executável; um PDF ali deve abrir no leitor, não ser executado.
+    NTFS e FAT montadas marcam tudo como executável; um PDF ali deve abrir.
     """
     if not os.access(path, os.X_OK):
         return False

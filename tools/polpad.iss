@@ -1,18 +1,8 @@
-; Instalador do Polpad para Windows (Inno Setup 6).
-;
+; Instalador do Polpad para Windows (Inno Setup 6), só para o usuário.
 ; Gerado por: .venv\Scripts\python tools\build_exe.py --instalador
-; que passa /DVersao, /DOrigem (pasta dist\Polpad do PyInstaller), /DIcone,
-; /DLicenca, /DImagemGrande, /DImagemPequena e /O (pasta de saída).
 ;
-; Páginas: boas-vindas, licença, opções, pronto para instalar, instalando e
-; conclusão. Instala só para o usuário, sem administrador.
-;
-; O atualizador do Polpad roda este mesmo instalador em silêncio para
-; atualizar ou voltar de versão:
-;   Polpad-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-;                    /CLOSEAPPLICATIONS /LOG=... [/ATUALIZACAO]
-; Com /ATUALIZACAO, o Polpad é reaberto ao terminar. Em silêncio, nenhuma
-; opção é regravada: vale o que a pessoa escolheu depois, nas Configurações.
+; O atualizador roda este instalador em silêncio; com /ATUALIZACAO o Polpad
+; é reaberto ao terminar. Em silêncio nenhuma opção é regravada.
 
 #ifndef Versao
   #define Versao "0.0.0"
@@ -60,8 +50,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Fecha o Polpad aberto antes de trocar os arquivos; quem reabre é o [Run].
 CloseApplications=yes
 RestartApplications=no
-; Enquanto o instalador roda, o Polpad aberto pelo atalho sai na hora em
-; vez de achar a pasta _internal pela metade (ver update/setup_lock.py).
+; O Polpad aberto durante a instalação sai na hora (ver update/setup_lock.py).
 SetupMutex=PolpadInstalando
 Compression=lzma2
 SolidCompression=yes
@@ -100,13 +89,11 @@ Name: "{autoprograms}\Polpad"; Filename: "{app}\Polpad.exe"
 Name: "{autodesktop}\Polpad"; Filename: "{app}\Polpad.exe"; Tasks: desktopicon
 
 [Registry]
-; Iniciar com o Windows: o mesmo valor que o Polpad grava pelas
-; Configurações. Só na instalação pelo assistente (não nas atualizações).
+; Mesmo valor que as Configurações gravam; não nas atualizações.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Polpad"; ValueData: """{app}\Polpad.exe"" --minimized"; Tasks: iniciarcomwindows; Check: not WizardSilent; Flags: uninsdeletevalue
 ; Se a pessoa ligou depois, pelas Configurações, a desinstalação também remove.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Polpad"; Flags: uninsdeletevalue dontcreatekey
-; Nome e ícone dos avisos na central de notificações (o Polpad grava ao
-; avisar); aqui só para sair junto na desinstalação.
+; Gravado pelo Polpad ao notificar; aqui só para sair na desinstalação.
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\Polpad.Polpad"; ValueType: string; ValueName: "DisplayName"; ValueData: "Polpad"; Flags: uninsdeletekey
 
 [Run]
@@ -154,9 +141,8 @@ begin
   end;
 end;
 
-{ Tela de desinstalação. O Inno Setup sempre pergunta "Tem certeza?"; para
-  não confirmar duas vezes, esta tela reabre o desinstalador em modo
-  semiautomático (/SILENT: só o progresso), levando a escolha dos perfis. }
+{ O Inno Setup sempre pergunta "Tem certeza?"; para não confirmar duas vezes,
+  esta tela reabre o desinstalador com /SILENT, levando a escolha dos perfis. }
 function InitializeUninstall: Boolean;
 var
   Form: TSetupForm;
@@ -171,14 +157,12 @@ begin
   if UninstallSilent then
     Exit;
   Result := False;
-  { Tamanho fixo: o painel do polvo à esquerda, o texto à direita. }
   Form := CreateCustomForm(ScaleX(560), ScaleY(260), False, False);
   try
     Form.Caption := 'Desinstalar o Polpad';
     Form.BorderStyle := bsDialog;
     Form.BorderIcons := [biSystemMenu];
     Form.Position := poScreenCenter;
-    { Branco, como o conteúdo das páginas do instalador. }
     Form.Color := clWindow;
 
     Esquerda := 0;

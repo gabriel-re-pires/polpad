@@ -1,9 +1,7 @@
-"""Modelos de domínio do macropad.
+"""Modelos de domínio: :class:`Profile` liga cada tecla a uma :class:`Action`.
 
-Um :class:`Profile` (o "save" do usuário) associa cada uma das teclas
-físicas a uma :class:`Action`. As ações são descritas por um tipo e um
-dicionário de parâmetros, o que permite adicionar novos tipos de ação
-sem alterar o modelo (padrão Strategy + Registry, ver ``actions/``).
+Ações são tipo + parâmetros, para novos tipos não mexerem no modelo (ver
+``actions/``).
 """
 
 from __future__ import annotations
@@ -17,20 +15,15 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------- layout
-# Layout físico do macropad, conforme o PCB: uma grade de 4 linhas x 5
-# colunas em que as duas primeiras posições da linha de cima ficam vazias
-# (ali ficam o módulo ESP32-C3 e o display). São 18 teclas, numeradas na
-# ordem de leitura — a mesma ordem usada pelo firmware (docs/PROTOCOLO.md):
+# Layout físico conforme o PCB (o ESP32-C3 e o display ocupam as duas
+# primeiras posições). Numeração igual à do firmware (docs/PROTOCOLO.md):
 #
 #               [ 0] [ 1] [ 2]
 #     [ 3] [ 4] [ 5] [ 6] [ 7]
 #     [ 8] [ 9] [10] [11] [12]
 #     [13] [14] [15] [16] [17]
 #
-# Esta tabela é a única fonte de verdade do layout: a grade da interface,
-# o simulador, o ícone do aplicativo e o mapa de teclas desenhado no
-# display derivam dela.
+# Única fonte de verdade do layout (interface, simulador, ícone do app).
 GRID_ROWS = 4
 GRID_COLS = 5
 KEY_LAYOUT: tuple[tuple[int, int], ...] = (
@@ -53,6 +46,7 @@ def key_at(row: int, col: int) -> int | None:
     except ValueError:
         return None
 
+
 # Resolução do display OLED 0,96" (SSD1306).
 SCREEN_W = 128
 SCREEN_H = 64
@@ -60,15 +54,11 @@ SCREEN_H = 64
 
 @dataclass
 class Action:
-    """Uma ação executável associada a uma tecla.
+    """Ação associada a uma tecla.
 
-    ``type``   identifica o executor registrado (ex.: ``hotkey``, ``text``,
-               ``command``, ``launch``, ``media``, ``macro``, ``home_assistant``).
-    ``params`` são os parâmetros específicos daquele tipo.
-    ``label``  é o nome curto exibido na tecla dentro do configurador.
-    ``short``  abreviação de até 3 caracteres. Era desenhada no mapa de
-               teclas do display, que saiu do aparelho; o campo é mantido
-               para não perder o que já está nos arquivos.
+    ``type`` é o executor registrado; ``label``, o nome na tecla do
+    configurador. ``short`` era do mapa do display (que saiu) e fica para não
+    perder o que já está nos arquivos.
     """
 
     type: str
@@ -80,7 +70,6 @@ class Action:
     def display_short(self) -> str:
         """Abreviação efetiva para o display (``short`` ou derivada do rótulo)."""
         if self.short:
-            # Escolhida pelo usuário: vai como está (só sem acentos).
             return _ascii(self.short)[:SHORT_LABEL_MAX] or "?"
         return short_label(self.label or self.type)
 
@@ -105,11 +94,9 @@ class Action:
 
 
 def short_label(text: str) -> str:
-    """Reduz um texto a uma abreviação de até 3 caracteres ASCII maiúsculos.
+    """Abreviação de até 3 caracteres ASCII maiúsculos (``Edição`` -> ``EDI``).
 
-    A fonte do display não tem acentos, então ``Edição`` vira ``EDI``.
-    Palavras compostas usam as iniciais (``Ctrl+Shift+P`` -> ``CSP``) quando
-    isso rende mais de um caractere; senão, o início da palavra.
+    Palavras compostas usam as iniciais (``Ctrl+Shift+P`` -> ``CSP``).
     """
     words = [w for w in re.split(r"[\s+_\-/.:→]+", _ascii(text)) if w]
     if not words:
@@ -131,16 +118,9 @@ DISPLAY_MODES = ("icone", "personalizado")
 
 @dataclass
 class DisplayConfig:
-    """O que o display mostra enquanto um perfil está ativo.
+    """O que o display mostra enquanto o perfil está ativo (um por perfil).
 
-    Cada perfil tem a sua: um pode mostrar só o ícone e outro, a hora.
-
-    ``mode``          ``"icone"`` (a imagem do perfil; sem imagem, o nome) ou
-                      ``"personalizado"`` (tela montada com os itens abaixo);
-    ``icon_splash``   no modo personalizado, mostrar o ícone por um instante
-                      ao entrar no perfil;
-    ``show_*``        itens da tela personalizada;
-    ``text``          texto livre da tela personalizada.
+    ``icon_splash``: no modo personalizado, mostra o ícone ao entrar no perfil.
     """
 
     mode: str = "icone"
@@ -176,11 +156,7 @@ class DisplayConfig:
 
     @classmethod
     def from_legacy_settings(cls, data: Any) -> DisplayConfig:
-        """Converte o bloco global das versões em que o display era um só.
-
-        Os perfis antigos herdam o que estava configurado, então nada muda
-        para o usuário até ele mexer.
-        """
+        """Converte o bloco global das versões em que o display era um só."""
         if not isinstance(data, dict):
             return cls()
         return cls.from_dict(
@@ -200,12 +176,9 @@ class DisplayConfig:
 
 @dataclass
 class Profile:
-    """Um conjunto nomeado de atalhos ("save") selecionável pela tecla de modo.
+    """Conjunto nomeado de atalhos, selecionável pela tecla de modo.
 
-    ``icon_path`` aponta para a imagem escolhida pelo usuário; quando ausente,
-    o display do macropad exibe o nome do perfil. ``auto_apps`` lista os
-    executáveis (ex.: ``code.exe``) que ativam este perfil automaticamente
-    quando ganham o foco (se a troca automática estiver habilitada).
+    ``auto_apps``: executáveis (ex.: ``code.exe``) que ativam o perfil ao ganhar foco.
     """
 
     name: str
@@ -234,9 +207,8 @@ class Profile:
     ) -> Profile:
         """Reconstrói o perfil. Lança ``KeyError`` se não houver nome.
 
-        Teclas e apps inválidos são descartados individualmente: um dado
-        corrompido não deve custar o perfil inteiro. Perfis salvos antes de
-        o display ser por perfil recebem ``default_display``.
+        Teclas e apps inválidos são descartados um a um, sem perder o perfil.
+        Perfis anteriores ao display por perfil recebem ``default_display``.
         """
         name = data["name"]
         if "display" in data:
@@ -288,19 +260,14 @@ class Settings:
     mode_key: int | None = None
     # Porta serial preferida (ex.: "COM5"); None = detecção automática.
     serial_port: str | None = None
-    # Troca automática de perfil pelo aplicativo em foco.
     auto_switch_enabled: bool = False
-    # O que o display mostra é configurado em cada perfil (DisplayConfig).
-    # Registrar o aplicativo para iniciar junto com o Windows (na bandeja).
     start_with_windows: bool = False
-    # Integração Home Assistant.
     ha_url: str = ""
     ha_token: str = ""
-    # Integração OBS Studio (obs-websocket v5).
+    # OBS Studio (obs-websocket v5).
     obs_host: str = "localhost"
     obs_port: int = 4455
     obs_password: str = ""
-    # Atualizações: aviso de versão nova e instalação automática.
     update_notify: bool = True
     update_auto: bool = False
     # Linux: perguntar se o Polpad deve se instalar no menu de aplicativos.

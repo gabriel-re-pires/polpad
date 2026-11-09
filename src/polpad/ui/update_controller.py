@@ -1,12 +1,7 @@
 """Coordena verificação, aviso, download, troca de versão e backups.
 
-A lógica de decisão está em :mod:`polpad.update.policy`; aqui ficam os
-efeitos: consultas fora da thread da interface, o aviso no canto da tela,
-a página de versão e o encerramento do Polpad para a troca.
-
-Rede, processos, relógio e o modo de rodar as tarefas são injetáveis, para
-que os testes exercitem o fluxo inteiro sem tocar no GitHub nem abrir
-programas.
+As decisões ficam em :mod:`polpad.update.policy`; aqui, os efeitos. Rede,
+processos, relógio e o runner são injetáveis para os testes.
 """
 
 from __future__ import annotations
@@ -54,9 +49,6 @@ INSTALL_LOG = "instalacao.log"
 JOB_WAIT_MS = 20_000
 
 
-# ---------------------------------------------------------------- troca
-
-
 def apply_switch(
     data_dir: Path,
     current: str,
@@ -73,9 +65,8 @@ def apply_switch(
 ) -> None:
     """Backup, marca de troca e a troca em si. Quem chama encerra o Polpad.
 
-    ``expected_sha256`` é a soma conferida no download: o arquivo fica numa
-    pasta gravável e pode ter mudado até a hora de instalar, então é
-    conferido de novo antes de ser executado.
+    ``expected_sha256`` é reconferido: o arquivo fica numa pasta gravável e
+    pode ter mudado desde o download.
     """
     if expected_sha256 and installer.sha256_file(package) != expected_sha256:
         raise installer.InstallError(
@@ -95,9 +86,8 @@ def apply_switch(
     try:
         installer.swap_linux(package, Path(executable))
     except (installer.InstallError, OSError):
-        # Nada foi trocado: desfaz a marca, senão a próxima abertura avisaria
-        # de uma troca que nem começou. A pendente volta para quem chamou
-        # poder descartá-la (com o arquivo danificado).
+        # Nada foi trocado: desfaz a marca e devolve a pendente, para quem
+        # chamou poder descartá-la.
         st.switch, st.pending = previous
         st.save(path)
         raise
@@ -189,8 +179,7 @@ def _discard_pending(data_dir: Path) -> None:
 
 
 def _clean_downloads(data_dir: Path) -> None:
-    """Apaga os downloads antigos; um arquivo preso (o log que o instalador
-    ainda segura, por exemplo) fica para a próxima vez."""
+    """Apaga os downloads antigos; arquivo ainda preso fica para depois."""
     folder = updates_dir(data_dir)
     if not folder.is_dir():
         return
@@ -214,9 +203,6 @@ def _valid_pending(pending: Pending | None, version: str) -> bool:
         return installer.sha256_file(Path(pending.path)) == pending.sha256
     except OSError:
         return False
-
-
-# ---------------------------------------------------------------- tarefas
 
 
 class _Job(QThread):
@@ -247,11 +233,8 @@ class _Progress(QObject):
     changed = Signal(int)
 
 
-# ---------------------------------------------------------------- controlador
-
-
 class UpdateController(QObject):
-    #: "Gravar" no aviso de firmware novo: a janela abre a página de gravação.
+    #: "Gravar" no aviso de firmware novo.
     flash_requested = Signal()
 
     def __init__(
@@ -301,8 +284,7 @@ class UpdateController(QObject):
         self._cancel = threading.Event()
         self._jobs: set[_Job] = set()
         self._page: VersionPage | None = None
-        # Quem mostra a página dentro da janela principal (``MainWindow``).
-        # Sem ele, a página abre como janela própria.
+        # Mostra a página dentro da janela principal; sem ele, abre como janela própria.
         self.show_page: Callable[[QWidget], None] | None = None
         self._progress = _Progress()
         self._progress.changed.connect(self._on_progress)
@@ -318,8 +300,7 @@ class UpdateController(QObject):
         self._firmware_offered: str | None = None
         self._firmware_dismissed = False
 
-        # Central de notificações do sistema (``notification_center``); sem
-        # ela, os avisos só aparecem no canto da tela.
+        # Central de notificações do sistema; sem ela, só o aviso no canto da tela.
         self._center = center
         self.toast = UpdateToast(notify=center.post if center is not None else None)
         self.toast.update_clicked.connect(self._on_toast_update)
@@ -342,8 +323,6 @@ class UpdateController(QObject):
 
     def _development(self) -> bool:
         return self._kind() == "desenvolvimento"
-
-    # ------------------------------------------------------------ ciclo
 
     def start(self) -> None:
         QTimer.singleShot(policy.FIRST_CHECK_DELAY_MS, self.scheduled_check)
@@ -370,9 +349,8 @@ class UpdateController(QObject):
     def shutdown(self) -> None:
         """Para as tarefas e apaga o aviso e a página antes do ``QApplication``.
 
-        Uma ``QThread`` destruída ainda rodando aborta o processo, e o aviso,
-        uma janela sem dono, destruído depois do ``QApplication`` derruba o
-        processo ao sair (access violation).
+        ``QThread`` destruída rodando aborta o processo, e o aviso (janela sem
+        dono) destruído depois do ``QApplication`` causa access violation.
         """
         self._cancel.set()
         self._timer.stop()
@@ -406,8 +384,6 @@ class UpdateController(QObject):
         except (installer.InstallError, OSError):
             log.exception("falha ao instalar a atualização ao sair")
             _discard_pending(self.data_dir)
-
-    # ------------------------------------------------------------ verificação
 
     def check_now(self, user: bool) -> None:
         if self._checking:
@@ -443,14 +419,11 @@ class UpdateController(QObject):
             lambda: releases.list_releases(self._session, self._platform), done, failed
         )
 
-    # ------------------------------------------------------------ firmware
-
     def device_firmware(self, version: str) -> None:
         """A placa conectou com o firmware ``version``.
 
-        Na primeira vez da sessão, consulta o firmware do release mais
-        recente; se ele for mais novo que o da placa, avisa (uma vez por
-        sessão e por versão da placa, como o aviso de versão do programa).
+        Consulta o release uma vez por sessão e avisa se houver firmware mais
+        novo (uma vez por versão da placa).
         """
         self._device_firmware = version
         if not self.store.settings.update_notify:
@@ -486,8 +459,7 @@ class UpdateController(QObject):
         if not self.store.settings.update_notify:
             return
         if self.toast.isVisible() and self.toast.current_action != "flash":
-            # Não atropela o aviso do programa (versão nova, progresso, erro):
-            # tenta de novo quando ele já tiver sumido.
+            # Não atropela o aviso do programa: tenta de novo depois que sumir.
             QTimer.singleShot(VISIBLE_MS + 500, self._offer_firmware)
             return
         self._firmware_offered = current
@@ -496,8 +468,6 @@ class UpdateController(QObject):
     def _on_toast_flash(self) -> None:
         self.toast.hide()
         self.flash_requested.emit()
-
-    # ------------------------------------------------------------ instalação
 
     def begin_update(self, release: releases.AppRelease) -> None:
         if self._development() or self._switching or self._user_update is not None:
@@ -513,7 +483,6 @@ class UpdateController(QObject):
         self._refresh_page()
 
         if self._auto_download == release.version:
-            # O download automático desta versão já está em andamento.
             self._install_when_ready = True
             return
         pending = UpdateState.load(state_path(self.data_dir)).pending
@@ -644,8 +613,6 @@ class UpdateController(QObject):
             self._switching = False
             raise
 
-    # ------------------------------------------------------------ opções
-
     def set_notify(self, enabled: bool) -> None:
         self.store.settings.update_notify = enabled
         self.store.save()
@@ -665,14 +632,8 @@ class UpdateController(QObject):
             self.toast.hide()
         self._refresh_page()
 
-    # ------------------------------------------------------------ página
-
     def open_page(self) -> None:
-        """Abre "Versão e atualizações" (pelo menu ou por "Ver novidades").
-
-        A janela principal apaga a página quando o usuário volta; na próxima
-        abertura, uma nova é criada.
-        """
+        """Abre "Versão e atualizações"; recria a página se a janela a apagou."""
         page = self._page
         if page is None or not shiboken6.isValid(page):
             page = VersionPage()
@@ -717,8 +678,7 @@ class UpdateController(QObject):
 
     def _restore(self, item: backup.Backup) -> None:
         backup.restore(self.data_dir, item, self.current, now=self._now())
-        # Quem sai grava a configuração em memória: recarregada, ela é a
-        # restaurada, e não a de antes.
+        # Ao sair a configuração em memória é gravada: recarrega a restaurada.
         self.store.load()
         self._restart([])
 
@@ -742,8 +702,6 @@ class UpdateController(QObject):
             "funcionando de onde está.",
         )
         self._refresh_page()
-
-    # ------------------------------------------------------------ desinstalar
 
     def _windows_uninstaller(self) -> Path:
         # O Inno Setup grava o desinstalador na pasta do programa.
@@ -776,8 +734,7 @@ class UpdateController(QObject):
         if not self.uninstall_support()[0]:
             return
         if self._kind() == "windows":
-            # A tela do desinstalador confirma e fecha o Polpad; se a pessoa
-            # cancelar, ele continua aberto.
+            # O desinstalador confirma e fecha o Polpad; cancelado, ele segue aberto.
             self._launcher([str(self._windows_uninstaller())])
             return
         remove_profiles = self._ask_linux_uninstall()
@@ -785,8 +742,7 @@ class UpdateController(QObject):
             return
         linux_install.uninstall()
         if remove_profiles:
-            # Ao sair o Polpad ainda grava a configuração: a pasta só é
-            # apagada depois que este processo terminar.
+            # Ao sair o Polpad ainda grava a configuração: apaga só depois.
             self._launcher(
                 [
                     "/bin/sh",
@@ -831,8 +787,6 @@ class UpdateController(QObject):
         self._launcher([*argv, "--apos-atualizacao"])
         self._quit()
 
-    # ------------------------------------------------------------ Linux
-
     def maybe_offer_linux_install(self) -> None:
         """Pergunta uma vez se o executável avulso deve ir para o menu."""
         if not (
@@ -856,8 +810,6 @@ class UpdateController(QObject):
         elif box.clickedButton() is never:
             self.store.settings.linux_install_prompt = False
             self.store.save()
-
-    # ------------------------------------------------------------ interno
 
     def _on_toast_update(self) -> None:
         if self.update is not None:

@@ -1,17 +1,7 @@
 """Inspetor: o painel à direita do aparelho.
 
-Três cartões, de cima para baixo na ordem em que se usa:
-
-``KeyCard``      a tecla selecionada no aparelho — o que ela faz e os
-                 botões para editar, testar e limpar;
-``IconCard``     o ícone do perfil, com a prévia EXATA de como ele sai no
-                 OLED (1 bit, ocupando a altura do display);
-``DisplayCard``  o que o display mostra: o ícone do perfil ou uma tela
-                 personalizada (hora, data, perfil, texto).
-
-A prévia do ícone resolve a principal dúvida de quem escolhe uma imagem:
-"como isso vai ficar no aparelho?". Antes, só se descobria olhando o
-hardware — e se o ícone saía apagado, parecia que não tinha funcionado.
+Cartões da tecla selecionada, do ícone do perfil (com a prévia exata no OLED),
+da tela do display e do resumo das teclas.
 """
 
 from __future__ import annotations
@@ -222,8 +212,7 @@ class IconCard(QFrame):
 
         self._preview = OledPreview(pixel=2.0, padding=8)
         self._preview.setToolTip("Exatamente como o ícone aparece no display")
-        # Passo de 2 px por ponto: grande o bastante para ler o desenho, sem
-        # empurrar o resto do painel para fora da tela.
+        # 2 px por ponto: legível sem empurrar o resto do painel para fora.
         self._preview.setFixedHeight(64 * 2 + 16)
         layout.addWidget(self._preview)
 
@@ -304,8 +293,7 @@ class IconCard(QFrame):
         try:
             self._store.import_icon(path, profile)
         except (OSError, ValueError) as exc:
-            # Sem isto a exceção subia para fora do slot Qt, onde o PySide6
-            # pode encerrar o processo.
+            # Exceção fora do slot Qt pode encerrar o processo no PySide6.
             QMessageBox.warning(
                 self,
                 "Não foi possível usar esta imagem",
@@ -327,15 +315,10 @@ class IconCard(QFrame):
 
 
 class DisplayCard(QFrame):
-    """O que o display mostra neste perfil, numa lista única de opções.
+    """O que o display mostra no perfil.
 
-    "Ícone" e os itens da tela montada (hora, data, nome) se excluem:
-    marcar o ícone desmarca os outros; marcar qualquer outro desmarca o
-    ícone. Desmarcar o ícone traz a tela montada com hora, data e nome;
-    desmarcar o último item (sem texto livre) volta ao ícone — o display
-    nunca fica sem nada escolhido.
-
-    A configuração é do perfil selecionado na lista (cada perfil tem a sua).
+    "Ícone" e os itens da tela montada se excluem; desmarcar o último item
+    (sem texto livre) volta ao ícone, então o display nunca fica vazio.
     """
 
     display_settings_changed = Signal()
@@ -383,15 +366,10 @@ class DisplayCard(QFrame):
 
         self.show_profile(None)
 
-    # ---------------------------------------------------------------- API
-
     def show_profile(self, profile: Profile | None) -> None:
-        """Mostra (e passa a editar) a configuração de ``profile``."""
         self._profile = profile
         self.setEnabled(profile is not None)
         self._sync()
-
-    # ------------------------------------------------------------- estado
 
     def _sync(self) -> None:
         """Reflete a configuração do perfil nas caixas, sem disparar sinais."""
@@ -419,7 +397,6 @@ class DisplayCard(QFrame):
             for attr, _ in self._ITEMS:
                 setattr(cfg, attr, False)
         else:
-            # Sair do ícone: a tela montada começa com hora, data e nome.
             cfg.mode = "personalizado"
             for attr, _ in self._ITEMS:
                 setattr(cfg, attr, True)
@@ -461,15 +438,9 @@ class DisplayCard(QFrame):
 class FitScrollArea(QScrollArea):
     """Rolagem vertical que dá ao conteúdo a altura que ele pede.
 
-    Com ``widgetResizable``, o QScrollArea ajusta o conteúdo à altura da
-    janela sem considerar textos com quebra de linha (altura que depende
-    da largura): quando os cartões não cabem, eles eram espremidos e se
-    sobrepunham em vez de rolar. Aqui a altura mínima do conteúdo é
-    recalculada para a largura atual sempre que o layout muda.
-
-    Quando só a altura-por-largura muda (um texto que quebra em mais
-    linhas, opções que aparecem), o Qt não avisa a área de rolagem; por
-    isso quem muda o conteúdo chama :meth:`refit`.
+    O QScrollArea ignora a altura-por-largura de textos com quebra e espremia
+    os cartões em vez de rolar. O Qt não avisa quando só ela muda, então quem
+    muda o conteúdo chama :meth:`refit`.
     """
 
     def __init__(self) -> None:
@@ -632,15 +603,7 @@ class KeysCard(QFrame):
 
 
 class Inspector(QFrame):
-    """Coluna direita, com duas visões.
-
-    * **Perfil** (nada selecionado): o ícone do perfil no topo, a tela do
-      display (ícone, hora, data, nome, texto) e o resumo das teclas.
-    * **Tecla** (uma tecla clicada no aparelho): o que ela faz e os botões
-      para editar, testar e limpar; "Voltar ao perfil" retorna à primeira.
-
-    O título é o nome do perfil que está no centro da tela.
-    """
+    """Coluna direita: visão do perfil (ícone, display, teclas) ou da tecla."""
 
     back_requested = Signal()
 
@@ -652,7 +615,7 @@ class Inspector(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        # Cabeçalho fixo (fora da rolagem): nome do perfil e o ícone de recolher.
+        # Cabeçalho fora da rolagem; o ícone de recolher entra nele depois.
         self.header = header = QHBoxLayout()
         header.setContentsMargins(10, 14, 14, 4)
         header.setSpacing(6)

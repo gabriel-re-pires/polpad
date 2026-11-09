@@ -1,17 +1,8 @@
-"""Detecção do aplicativo em primeiro plano (Windows e Linux/X11).
+"""Aplicativo em primeiro plano (Windows e Linux/X11), para a troca automática.
 
-Usada pela troca automática de perfil: quando o executável em foco muda
-e corresponde ao ``auto_apps`` de um perfil, esse perfil é ativado.
-
-A detecção é *edge-triggered* (só reage à MUDANÇA de foco), de modo que
-uma troca manual pela tecla de modo prevalece até o usuário focar outro
-aplicativo vinculado.
-
-No Linux o aplicativo é identificado pela classe da janela (``WM_CLASS``,
-ex.: ``code``, ``firefox``, ``obs``) e não pelo executável: apps Electron,
-Java ou Python rodam todos sob o mesmo interpretador, e o PID de um app
-Flatpak é o de dentro da sandbox. Numa sessão Wayland só as janelas que
-rodam via XWayland são vistas.
+No Linux vale a classe da janela (``WM_CLASS``), não o executável: Electron,
+Java e Python dividem interpretador e o PID do Flatpak é o da sandbox. No
+Wayland só se veem janelas XWayland.
 """
 
 from __future__ import annotations
@@ -72,8 +63,7 @@ def foreground_exe() -> str | None:
     return None
 
 
-# Conexão com o servidor X, aberta na primeira consulta e reaproveitada (a
-# consulta roda uma vez por segundo). Só a thread da interface a usa.
+# Conexão X reaproveitada (consulta a cada segundo); só a thread da UI a usa.
 _x_display: Any = None
 _x_unavailable = False
 
@@ -125,8 +115,7 @@ def _foreground_x11() -> str | None:
 def wm_class_name(wm_class: tuple[str, str] | None) -> str | None:
     """Nome do app a partir do ``WM_CLASS`` (instância, classe).
 
-    A classe identifica o aplicativo (``firefox``); a instância às vezes é
-    só o papel da janela (o Firefox usa ``Navigator``).
+    Prefere a classe: a instância às vezes é o papel da janela (``Navigator``).
     """
     if not wm_class:
         return None

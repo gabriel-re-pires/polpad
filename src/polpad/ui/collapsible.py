@@ -1,10 +1,4 @@
-"""Coluna lateral recolhível.
-
-O botão de recolher é só um ícone (sem fundo nem borda) dentro do
-cabeçalho da própria coluna. Recolhida, a coluna não some: vira um trilho
-fino com o mesmo ícone, que a expande de novo. Assim o usuário sempre vê
-onde ela está e como trazê-la de volta.
-"""
+"""Coluna lateral recolhível: recolhida, vira um trilho fino que a expande de novo."""
 
 from __future__ import annotations
 
@@ -31,9 +25,7 @@ def bare_icon_button(glyph: str, tooltip: str) -> QToolButton:
 class CollapsibleSide(QFrame):
     """Envolve uma coluna (perfis ou inspetor) e a recolhe para um trilho.
 
-    ``header`` é o layout do cabeçalho da coluna, onde o ícone de recolher
-    é posto — na ponta de fora da coluna (direita da coluna da esquerda,
-    esquerda da coluna da direita), perto de onde ela encolhe.
+    O ícone de recolher vai em ``header``, na ponta de fora da coluna.
     """
 
     collapsed_changed = Signal(bool)

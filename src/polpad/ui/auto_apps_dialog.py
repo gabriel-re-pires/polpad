@@ -1,10 +1,7 @@
 """Diálogo de vínculo de aplicativos a um perfil (troca automática).
 
-O usuário monta a lista de executáveis (ex.: ``code.exe``; no Linux, a
-classe da janela, como ``code``) que, ao
-ganharem o foco, ativam o perfil — quando a troca automática estiver
-habilitada em Configurações. O botão "Capturar" espera 3 segundos para
-o usuário focar o aplicativo desejado e registra o executável em foco.
+Lista de executáveis (no Linux, a classe da janela) que ativam o perfil ao
+ganhar o foco. "Capturar" espera 3 s e registra o app em foco.
 """
 
 from __future__ import annotations
