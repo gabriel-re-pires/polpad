@@ -525,9 +525,14 @@ class FilaDeAcoesTest(unittest.TestCase):
 
 
 class RodizioDePortasTest(unittest.TestCase):
-    """``_find_port`` devolvia sempre a primeira candidata. Se ela não fosse
-    o macropad (outro conversor USB-serial ligado, por exemplo), o enlace
-    tentava a mesma porta indefinidamente e nunca achava o dispositivo.
+    """A busca automática abria toda porta USB-serial para mandar o ``ping``
+    e repetia isso para sempre a cada poucos segundos. No Windows a porta é
+    exclusiva: um Arduino Uno ligado sem o macropad ficava ocupado e o Arduino
+    IDE não conseguia gravar (e abrir a porta ainda reseta o Uno).
+
+    Agora só portas com o VID da Espressif (o do macropad) são tentadas, e uma
+    que não responde ao handshake algumas vezes é deixada em paz até ser
+    desconectada (outra placa ESP32 ligada, por exemplo).
     """
 
     class PortaFalsa:
@@ -538,13 +543,14 @@ class RodizioDePortasTest(unittest.TestCase):
 
     def setUp(self):
         self.portas = [
-            self.PortaFalsa("COM3", 0x1234),                  # outro conversor
-            self.PortaFalsa("COM4", 0x5678),                  # mais um
+            self.PortaFalsa("COM3", 0x2341),                  # Arduino Uno
+            self.PortaFalsa("COM4", 0x1A86),                  # conversor CH340
             self.PortaFalsa("COM5", protocol.ESPRESSIF_VID),  # o macropad
+            self.PortaFalsa("COM6", protocol.ESPRESSIF_VID),  # outra placa ESP32
             self.PortaFalsa("COM1", None),                    # não é USB
         ]
         patcher = mock.patch(
-            "polpad.device.link.list_ports.comports", return_value=self.portas
+            "polpad.device.link.list_ports.comports", side_effect=lambda: self.portas
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -556,25 +562,65 @@ class RodizioDePortasTest(unittest.TestCase):
             preferred_port=preferred,
         )
 
-    def test_espressif_vem_primeiro_e_portas_sem_vid_ficam_de_fora(self):
-        self.assertEqual(self._link()._candidates(), ["COM5", "COM3", "COM4"])
+    def _so(self, *nomes):
+        self.portas = [p for p in self.portas if p.device in nomes]
+
+    def test_busca_automatica_nao_toca_em_placas_de_outros_fabricantes(self):
+        self.assertEqual(self._link()._candidates(), ["COM5", "COM6"])
+
+    def test_arduino_sozinho_nunca_e_aberto(self):
+        self._so("COM3", "COM1")
+        link = self._link()
+        self.assertEqual(link._candidates(), [])
+        self.assertIsNone(link._find_port())
 
     def test_alterna_entre_as_candidatas_que_falharam(self):
         link = self._link()
         tentadas = []
-        for _ in range(3):
+        for _ in range(2):
             porta = link._find_port()
             tentadas.append(porta)
-            link._rejected.add(porta)  # simula falha de handshake
-        self.assertEqual(tentadas, ["COM5", "COM3", "COM4"])
+            link._handshake_failed(porta)
+        self.assertEqual(tentadas, ["COM5", "COM6"])
 
-    def test_reinicia_a_rodada_quando_todas_falharam(self):
+    def test_tenta_de_novo_algumas_vezes(self):
+        # O firmware pode estar inicializando quando a porta aparece.
+        self._so("COM5")
         link = self._link()
-        link._rejected.update({"COM3", "COM4", "COM5"})
-        # O macropad pode ter sido ligado depois: vale tentar de novo.
+        for _ in range(SerialLink.MAX_HANDSHAKE_FAILURES - 1):
+            link._handshake_failed(link._find_port())
+        self.assertEqual(link._find_port(), "COM5")
+
+    def test_desiste_da_porta_que_nunca_responde(self):
+        self._so("COM6")
+        link = self._link()
+        for _ in range(SerialLink.MAX_HANDSHAKE_FAILURES):
+            link._handshake_failed(link._find_port())
+        self.assertIsNone(link._find_port())
+        self.assertIsNone(link._find_port(), "voltou a abrir a porta")
+
+    def test_porta_volta_a_ser_tentada_depois_de_reconectada(self):
+        self._so("COM6")
+        link = self._link()
+        for _ in range(SerialLink.MAX_HANDSHAKE_FAILURES):
+            link._handshake_failed(link._find_port())
+        self.portas = []  # desconectada
+        self.assertIsNone(link._find_port())
+        self.portas = [self.PortaFalsa("COM6", protocol.ESPRESSIF_VID)]
+        self.assertEqual(link._find_port(), "COM6")
+
+    def test_handshake_ok_zera_as_falhas(self):
+        self._so("COM5")
+        link = self._link()
+        for _ in range(SerialLink.MAX_HANDSHAKE_FAILURES - 1):
+            link._handshake_failed("COM5")
+        link._handshake_ok("COM5")
+        for _ in range(SerialLink.MAX_HANDSHAKE_FAILURES - 1):
+            link._handshake_failed("COM5")
         self.assertEqual(link._find_port(), "COM5")
 
     def test_porta_fixada_e_a_unica_considerada(self):
+        # Escolha explícita do usuário: vale para qualquer fabricante.
         self.assertEqual(self._link("COM4")._candidates(), ["COM4"])
 
     def test_porta_fixada_ausente_nao_cai_para_outra(self):
