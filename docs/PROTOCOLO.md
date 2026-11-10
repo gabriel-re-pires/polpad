@@ -17,9 +17,13 @@ exatamente estas mensagens.
 
 ## Identificação da porta
 
-O host procura portas com o VID USB da Espressif (`0x303A`) e confirma o
-dispositivo com um handshake: envia `ping` e espera `pong` ou `hello`
-em até 2 segundos.
+Na busca automática, o host só abre portas com o VID USB da Espressif
+(`0x303A`); portas de outros fabricantes (Arduino, conversores CH340/FTDI…)
+nunca são abertas, para não ocupá-las nem resetar a placa. Ele confirma o
+dispositivo com um handshake: envia `ping` e espera `pong` em até 2 segundos.
+Uma porta que falha 3 handshakes (outra placa ESP32, por exemplo) fica de
+fora até ser desconectada. Uma porta escolhida à mão pelo usuário é tentada
+sempre, seja de que fabricante for.
 
 ## Mensagens: dispositivo → host
 

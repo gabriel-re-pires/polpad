@@ -88,6 +88,9 @@ class SerialLink:
     HANDSHAKE_TIMEOUT_S = 2.0
     # Avisa o firmware que o host está presente (no modo híbrido, segura o BLE).
     HEARTBEAT_S = 3.0
+    # Handshakes sem resposta antes de deixar a porta em paz (cobre o firmware
+    # ainda inicializando quando a porta aparece).
+    MAX_HANDSHAKE_FAILURES = 3
 
     def __init__(
         self,
@@ -104,8 +107,9 @@ class SerialLink:
         self._thread: threading.Thread | None = None
         self._running = False
         self._write_lock = threading.Lock()
-        # Portas que não são o macropad, para não insistir sempre na mesma.
-        self._rejected: set[str] = set()
+        # Handshakes sem resposta por porta. No limite, a porta (outra placa
+        # ESP32, não o macropad) fica de fora até ser desconectada.
+        self._failures: dict[str, int] = {}
         self._announced = False
         # Portas sem permissão já avisadas (uma vez cada).
         self._denied: set[str] = set()
@@ -153,8 +157,8 @@ class SerialLink:
         try:
             self._connect_and_read(port)
         except (serial.SerialException, OSError) as exc:
-            # EACCES no Linux: fora do grupo da porta. Não vai para ``_rejected``
-            # para conectar assim que o acesso for liberado.
+            # EACCES no Linux: fora do grupo da porta. Não conta como falha de
+            # handshake, para conectar assim que o acesso for liberado.
             if exc.errno == errno.EACCES:
                 self._report_denied(port)
         finally:
@@ -180,26 +184,38 @@ class SerialLink:
         ports = list_ports.comports()
         if self.preferred_port:
             return [p.device for p in ports if p.device == self.preferred_port]
-        espressif = [p.device for p in ports if p.vid == protocol.ESPRESSIF_VID]
-        outras = [
-            p.device
-            for p in ports
-            if p.vid is not None and p.device not in espressif
-        ]
-        return espressif + outras
+        # Só o VID do macropad. Abrir a porta de outra placa a ocupa (no
+        # Windows o acesso é exclusivo: o Arduino IDE não consegue gravar) e
+        # ainda pode resetá-la, como acontece com o Arduino Uno.
+        return [p.device for p in ports if p.vid == protocol.ESPRESSIF_VID]
 
     def _find_port(self) -> str | None:
         """Próxima porta, em rodízio para não travar numa que não é o macropad."""
         candidatos = self._candidates()
-        if not candidatos:
-            self._rejected.clear()
-            return None
-        pendentes = [c for c in candidatos if c not in self._rejected]
+        # Porta desconectada recomeça do zero quando voltar.
+        self._failures = {
+            porta: n for porta, n in self._failures.items() if porta in candidatos
+        }
+        if self.preferred_port:
+            # Escolha do usuário: insiste nela.
+            return candidatos[0] if candidatos else None
+        pendentes = [
+            c
+            for c in candidatos
+            if self._failures.get(c, 0) < self.MAX_HANDSHAKE_FAILURES
+        ]
         if not pendentes:
-            # Todas falharam: recomeça (o firmware podia estar inicializando).
-            self._rejected.clear()
-            pendentes = candidatos
-        return pendentes[0]
+            return None
+        return min(pendentes, key=lambda c: self._failures.get(c, 0))
+
+    def _handshake_failed(self, port: str) -> None:
+        falhas = self._failures.get(port, 0) + 1
+        self._failures[port] = falhas
+        if falhas == self.MAX_HANDSHAKE_FAILURES and not self.preferred_port:
+            log.info("%s não é o macropad; fica de fora até ser desconectada", port)
+
+    def _handshake_ok(self, port: str) -> None:
+        self._failures.pop(port, None)
 
     def _connect_and_read(self, port: str) -> None:
         ser = serial.Serial(port, protocol.BAUD_RATE, timeout=0.5)
@@ -207,9 +223,9 @@ class SerialLink:
         ok, buffer, pending = self._handshake(ser)
         if not ok:
             log.debug("%s não respondeu ao handshake", port)
-            self._rejected.add(port)
+            self._handshake_failed(port)
             return
-        self._rejected.discard(port)
+        self._handshake_ok(port)
         # Se o acesso for negado de novo (outro usuário na sessão), avisa outra vez.
         self._denied.discard(port)
         self._announced = True
