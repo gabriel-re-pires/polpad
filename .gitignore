@@ -15,3 +15,5 @@ docs/especificacoes/2026-11-06-instalador-e-atualizador.md
 docs/especificacoes/2026-11-06-plano-instalador-e-atualizador.md
 # Relatórios locais: fora do repositório.
 relatorios/
+# Mapa intermediário do gerador das keycaps (refeito a cada execução).
+hardware/keycaps/stl_topo/_mapa.npy

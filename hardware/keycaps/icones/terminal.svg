@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- prompt de terminal ">_" (sem o quadrado de fundo: a tecla já é preta) -->
+  <path fill="#fff" d="M126 148 L258 248 L258 264 L126 364 L126 322 L206 256 L126 190 Z"/>
+  <rect fill="#fff" x="258" y="322" width="128" height="40" rx="6"/></svg>
