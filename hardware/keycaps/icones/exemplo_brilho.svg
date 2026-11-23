@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- estrela de 4 pontas com curvas + estrelinha -->
+  <path fill="#000" d="M10 2 C10.8 7.5 12.5 9.2 18 10 C12.5 10.8 10.8 12.5 10 18 C9.2 12.5 7.5 10.8 2 10 C7.5 9.2 9.2 7.5 10 2Z"/>
+  <path fill="#000" d="M18.5 14 Q19 18 22.5 18.5 Q19 19 18.5 22.5 Q18 19 14.5 18.5 Q18 18 18.5 14Z"/></svg>
