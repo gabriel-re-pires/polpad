@@ -8,17 +8,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QByteArray,
+    QMimeData,
+    QPointF,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
+    QDrag,
     QFont,
     QFontMetrics,
     QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
-from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
+from PySide6.QtWidgets import QAbstractButton, QApplication, QSizePolicy, QWidget
 
 from ..actions.base import get as action_type
 from ..core.models import GRID_COLS, GRID_ROWS, KEY_LAYOUT, Profile, key_at
@@ -31,6 +42,9 @@ KEY_GAP_RATIO = 0.14  # vão entre teclas, proporcional à tecla
 BODY_PAD_RATIO = 0.30  # margem do corpo do aparelho, proporcional à tecla
 KEY_RADIUS = 12
 KEY_TRAVEL = 3        # px de "curso" da tecla (sombra inferior)
+
+# Formato do arrasto entre teclas (carrega o índice da tecla de origem).
+KEY_MIME = "application/x-polpad-key"
 
 
 @dataclass
@@ -47,6 +61,8 @@ class KeyCap(QAbstractButton):
 
     activated = Signal()        # Enter / clique duplo
     menu_requested = Signal()
+    drag_started = Signal()
+    dropped = Signal(int)       # índice da tecla que foi solta aqui
 
     def __init__(self, index: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -55,6 +71,10 @@ class KeyCap(QAbstractButton):
         self.selected = False
         self.lit = False
         self._hover = False
+        self.dragging = False       # esta tecla está sendo arrastada
+        self.drop_target = False    # o arrasto está sobre esta tecla
+        self._press_pos = None
+        self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.PointingHandCursor)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -82,6 +102,93 @@ class KeyCap(QAbstractButton):
         self.update()
         super().leaveEvent(event)
 
+    def can_drag(self) -> bool:
+        """Só ações se movem: tecla vazia não tem o que levar e a de modo é global."""
+        return self.content.kind == "bound"
+
+    def accepts_drop_from(self, source: object) -> bool:
+        return (
+            isinstance(source, KeyCap)
+            and source is not self
+            and source.parent() is self.parent()
+            and self.content.kind != "mode"
+        )
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 — API Qt
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 — API Qt
+        # O arrasto só começa depois de alguns pixels: clique continua clique.
+        if (
+            self._press_pos is not None
+            and event.buttons() & Qt.LeftButton
+            and self.can_drag()
+            and (event.position().toPoint() - self._press_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._start_drag()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 — API Qt
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _start_drag(self) -> None:
+        hot = self._press_pos
+        self._press_pos = None
+        # Sem isso o botão emitiria clicked ao fim do gesto.
+        self.setDown(False)
+
+        snap = self.grab()
+        ghost = QPixmap(snap.size())
+        ghost.setDevicePixelRatio(snap.devicePixelRatio())
+        ghost.fill(Qt.transparent)
+        p = QPainter(ghost)
+        p.setOpacity(0.85)
+        p.drawPixmap(0, 0, snap)
+        p.end()
+
+        mime = QMimeData()
+        mime.setData(KEY_MIME, QByteArray(str(self.index).encode()))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.setPixmap(ghost)
+        drag.setHotSpot(hot)
+        self.drag_started.emit()
+        self.dragging = True
+        self.update()
+        drag.exec(Qt.MoveAction)
+        self.dragging = False
+        self.update()
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 — API Qt
+        if event.mimeData().hasFormat(KEY_MIME) and self.accepts_drop_from(
+            event.source()
+        ):
+            event.acceptProposedAction()
+            self.drop_target = True
+            self.update()
+            return
+        event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802 — API Qt
+        self.drop_target = False
+        self.update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 — API Qt
+        self.drop_target = False
+        self.update()
+        source = event.source()
+        if not self.accepts_drop_from(source):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.dropped.emit(source.index)
+
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 — API Qt
         if event.button() == Qt.LeftButton:
             self.activated.emit()
@@ -105,6 +212,9 @@ class KeyCap(QAbstractButton):
     def paintEvent(self, _event) -> None:  # noqa: N802 — API Qt
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        if self.dragging:
+            # Fica só o "buraco" de onde a ação saiu.
+            p.setOpacity(0.35)
         c = self.content
         pressed = self.lit or self.isDown()
         travel = 0 if pressed else KEY_TRAVEL
@@ -125,11 +235,13 @@ class KeyCap(QAbstractButton):
             top, bottom = QColor("#272B35"), QColor(style.BG_SURFACE)
             if self._hover:
                 top, bottom = top.lighter(112), bottom.lighter(110)
+        if self.drop_target and not self.lit:
+            top, bottom = top.lighter(135), bottom.lighter(130)
         grad = QLinearGradient(face.topLeft(), face.bottomLeft())
         grad.setColorAt(0, top)
         grad.setColorAt(1, bottom)
 
-        if self.selected:
+        if self.selected or self.drop_target:
             border = QPen(QColor(style.ACCENT), 2)
         elif self.hasFocus():
             border = QPen(QColor(style.ACCENT_HOVER), 1.4)
@@ -259,6 +371,7 @@ class DeviceView(QWidget):
     key_clicked = Signal(int)         # seleção
     key_activated = Signal(int)       # editar
     key_menu_requested = Signal(int)
+    key_moved = Signal(int, int)      # (origem, destino) de um arrasto
 
     # Tempo que a tecla fica acesa após ser pressionada no dispositivo.
     FLASH_MS = 280
@@ -271,11 +384,15 @@ class DeviceView(QWidget):
         self._caps: list[KeyCap] = []
         self._flash_timers: dict[int, QTimer] = {}
         self._body = QRectF()
+        self._profile_id: str | None = None
+        self._drag_profile_id: str | None = None
         for i in range(len(KEY_LAYOUT)):
             cap = KeyCap(i, self)
             cap.clicked.connect(lambda _c=False, k=i: self._on_click(k))
             cap.activated.connect(lambda k=i: self.key_activated.emit(k))
             cap.menu_requested.connect(lambda k=i: self.key_menu_requested.emit(k))
+            cap.drag_started.connect(lambda k=i: self._on_drag_started(k))
+            cap.dropped.connect(lambda src, k=i: self._on_drop(src, k))
             self._caps.append(cap)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -375,6 +492,16 @@ class DeviceView(QWidget):
         self.set_selected(key)
         self.key_clicked.emit(key)
 
+    def _on_drag_started(self, _key: int) -> None:
+        self._drag_profile_id = self._profile_id
+
+    def _on_drop(self, src: int, dst: int) -> None:
+        # O macropad pode trocar o perfil da tela no meio do arrasto: aí a
+        # ação de origem é de outro perfil e o arrasto não vale.
+        started_in, self._drag_profile_id = self._drag_profile_id, None
+        if started_in is not None and started_in == self._profile_id and src != dst:
+            self.key_moved.emit(src, dst)
+
     def set_selected(self, key: int | None) -> None:
         self.selected = key
         for cap in self._caps:
@@ -428,6 +555,7 @@ class DeviceView(QWidget):
         cap.update()
 
     def refresh(self, profile: Profile | None, mode_key: int | None) -> None:
+        self._profile_id = profile.id if profile else None
         for i, cap in enumerate(self._caps):
             action = profile.action_for(i) if profile else None
             if i == mode_key:
@@ -446,7 +574,8 @@ class DeviceView(QWidget):
                     )
                 )
                 cap.setToolTip(
-                    f"{action.label or type_title}\nClique duplo para editar"
+                    f"{action.label or type_title}\n"
+                    "Clique duplo para editar · arraste para mover"
                 )
             else:
                 cap.set_content(KeyContent("empty"))

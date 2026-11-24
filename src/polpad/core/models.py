@@ -191,6 +191,15 @@ class Profile:
     def action_for(self, key: int) -> Action | None:
         return self.bindings.get(key)
 
+    def move_binding(self, src: int, dst: int) -> None:
+        """Leva a ação de ``src`` para ``dst``; se ``dst`` já tem uma, as duas trocam."""
+        if src == dst or src not in self.bindings:
+            return
+        moving = self.bindings.pop(src)
+        if dst in self.bindings:
+            self.bindings[src] = self.bindings[dst]
+        self.bindings[dst] = moving
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,

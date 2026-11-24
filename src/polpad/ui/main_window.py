@@ -297,6 +297,7 @@ class MainWindow(QMainWindow):
         self._device.key_clicked.connect(self._on_key_selected)
         self._device.key_activated.connect(self._edit_key)
         self._device.key_menu_requested.connect(self._on_key_menu)
+        self._device.key_moved.connect(self._move_key)
         layout.addWidget(self._device, stretch=1)
         return stage
 
@@ -697,6 +698,22 @@ class MainWindow(QMainWindow):
         profile.bindings.pop(key, None)
         self._save_bindings()
         self.statusBar().showMessage(f"Tecla {key + 1} limpa.", 3000)
+
+    def _move_key(self, src: int, dst: int) -> None:
+        """Ação arrastada de uma tecla para outra; se o destino tem ação, trocam."""
+        profile = self._editing_profile()
+        mode_key = self._core.store.settings.mode_key
+        if profile is None or mode_key in (src, dst) or profile.action_for(src) is None:
+            return
+        swap = profile.action_for(dst) is not None
+        profile.move_binding(src, dst)
+        self._save_bindings()
+        self._choose_key(dst)
+        if swap:
+            msg = f"Teclas {src + 1} e {dst + 1} trocadas."
+        else:
+            msg = f"Tecla {src + 1} movida para a {dst + 1}."
+        self.statusBar().showMessage(msg, 3000)
 
     def _save_bindings(self) -> None:
         self._core.store.save()
