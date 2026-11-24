@@ -445,6 +445,10 @@ class ProfilePanel(QFrame):
         if profile_id:
             self.activate_requested.emit(profile_id)
 
+    def select(self, profile_id: str) -> None:
+        """Seleciona o perfil para edição, como se o usuário clicasse nele."""
+        self._select(profile_id)
+
     def _select(self, profile_id: str) -> None:
         for i in range(self._list.count()):
             if self._list.item(i).data(ROLE_ID) == profile_id:
