@@ -559,7 +559,9 @@ class MainWindow(QMainWindow):
             return
         key = int(message.get("k", -1))
         # Confirma que a tecla chegou, mesmo se a ação não tiver efeito visível.
-        self._device.flash(key)
+        # Só acende na tela do perfil ativo: a tecla executou a ação dele.
+        if self._editing_profile_id == self._core.store.active_profile_id:
+            self._device.flash(key)
         self.statusBar().showMessage(f"Tecla {key + 1} pressionada", 1500)
 
     def _on_action_error(self, message: str) -> None:
@@ -570,6 +572,8 @@ class MainWindow(QMainWindow):
 
     def _on_active_profile_changed(self, profile: Profile) -> None:
         self.statusBar().showMessage(f"Perfil ativo: {profile.name}", 3000)
+        # A tela do meio acompanha o perfil que está no macropad.
+        self._profile_panel.select(profile.id)
         self._refresh_all()
         if self._core.controller.splashing:
             # O display mostra o ícone por um instante; a prévia acompanha a volta.
@@ -630,16 +634,19 @@ class MainWindow(QMainWindow):
         page = ActionEditorPage(
             key, profile.action_for(key), profile.name, self._core.runner
         )
-        page.done.connect(lambda editor, k=key: self._on_action_edited(k, editor))
+        # Guarda o perfil: o macropad pode trocar o da tela com o editor aberto.
+        page.done.connect(
+            lambda editor, k=key, pid=profile.id: self._on_action_edited(k, editor, pid)
+        )
         page.closed.connect(self._close_overlay)
         if not self._show_overlay(page):
             page.deleteLater()
             return
         page.focus_form()
 
-    def _on_action_edited(self, key: int, editor) -> None:
+    def _on_action_edited(self, key: int, editor, profile_id: str) -> None:
         self._close_overlay()
-        profile = self._editing_profile()
+        profile = self._core.store.profile_by_id(profile_id)
         if profile is None:
             return
         action = editor.result_action
