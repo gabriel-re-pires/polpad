@@ -1,10 +1,13 @@
 """Campo que grava um atalho pressionando a combinação no teclado.
 
-Enquanto grava, captura todas as teclas (inclusive Tab e Esc). A combinação
+Enquanto grava, captura todas as teclas (inclusive Tab e Esc). A gravação
 fecha na primeira tecla não modificadora; soltar só modificadores grava apenas
-eles; Esc sozinho cancela. Letras e números vêm do código físico, então
-Shift+1 vira ``Shift + 1`` em qualquer layout. A tradução tecla -> nome fica
-em :mod:`polpad.actions.keys`.
+eles; Esc sozinho cancela. Cada gravação SOMA ao que já estava no campo: dá
+para montar Win + V em duas vezes (Win pelo menu ou pelo teclado virtual, V
+depois), já que o Windows engole o Win + V antes de ele chegar aqui. Só o
+botão Limpar apaga. Letras e números vêm do código físico, então Shift+1 vira
+``Shift + 1`` em qualquer layout. A tradução tecla -> nome fica em
+:mod:`polpad.actions.keys`.
 """
 
 from __future__ import annotations
@@ -20,6 +23,19 @@ _MOD_ORDER = ("ctrl", "alt", "shift", "win")
 
 # Teclas oferecidas no menu: as que não dá para apertar num teclado comum.
 EXTRA_KEYS = [f"f{i}" for i in range(13, 21)] + ["printscreen", "pause", "menu", "win"]
+
+_ALIASES = {"control": "ctrl", "windows": "win", "cmd": "win", "super": "win"}
+
+
+def merge_keys(old: list[str], new: list[str]) -> list[str]:
+    """Soma ``new`` à combinação ``old``, sem repetir; modificadores na frente."""
+    out: list[str] = []
+    for name in [*old, *new]:
+        name = _ALIASES.get(name, name)
+        if name not in out:
+            out.append(name)
+    mods = sorted((n for n in out if n in _MOD_ORDER), key=_MOD_ORDER.index)
+    return mods + [n for n in out if n not in _MOD_ORDER]
 
 
 class _CaptureField(QWidget):
@@ -72,8 +88,17 @@ class _CaptureField(QWidget):
         if event.button() == Qt.LeftButton:
             self.start()
 
-    def focusOutEvent(self, event) -> None:  # noqa: N802 — API Qt
+    def clear(self) -> None:
         self.stop()
+        self.set_keys([])
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802 — API Qt
+        # Win + V (e outros atalhos do Windows) abrem um painel que tira o
+        # foco antes de o Win ser solto: grava o que já estava apertado.
+        if self._listening and self._peak:
+            self._commit(list(self._peak))
+        else:
+            self.stop()
         super().focusOutEvent(event)
 
     def enterEvent(self, event) -> None:  # noqa: N802 — API Qt
@@ -141,7 +166,7 @@ class _CaptureField(QWidget):
 
     def _commit(self, names: list[str]) -> None:
         self.stop()
-        self.set_keys(names)
+        self.set_keys(merge_keys(self._keys, names))
         self.changed.emit(self.keys())
 
     def paintEvent(self, _event) -> None:  # noqa: N802 — API Qt
@@ -162,15 +187,16 @@ class _CaptureField(QWidget):
         p.setFont(font)
         x = 12.0
         if self._listening:
-            if self._held:
-                x = self._draw_combo(p, self._held, x, trailing=True)
-            elif self._warning:
+            combo = merge_keys(self._keys, self._held)
+            if self._warning:
                 p.setPen(QColor(style.WARNING))
                 p.drawText(
                     r.adjusted(12, 0, -12, 0),
                     Qt.AlignVCenter | Qt.AlignLeft,
                     self._warning,
                 )
+            elif combo:
+                x = self._draw_combo(p, combo, x, trailing=True)
             else:
                 p.setPen(QColor(style.ACCENT_HOVER))
                 p.drawText(
@@ -187,7 +213,7 @@ class _CaptureField(QWidget):
             p.drawText(
                 r.adjusted(0, 0, -12, 0),
                 Qt.AlignVCenter | Qt.AlignRight,
-                "clique para trocar",
+                "clique para adicionar",
             )
         else:
             p.setPen(QColor(style.TEXT_FAINT))
@@ -262,12 +288,32 @@ class HotkeyCapture(QWidget):
         more.setMinimumHeight(46)
         layout.addWidget(more)
 
+        self.clear_button = QToolButton()
+        self.clear_button.setText("Limpar")
+        self.clear_button.setToolTip("Apaga a combinação para gravar outra")
+        self.clear_button.setMinimumHeight(46)
+        self.clear_button.clicked.connect(self._clear)
+        layout.addWidget(self.clear_button)
+
+        self.field.changed.connect(self._sync)
+        self._sync()
+
     def _pick(self, name: str) -> None:
-        self.field.set_keys([name])
+        self.field.set_keys(merge_keys(self.field.keys(), [name]))
+        self._sync()
         self.changed.emit(self.field.keys())
+
+    def _clear(self) -> None:
+        self.field.clear()
+        self._sync()
+        self.changed.emit(self.field.keys())
+
+    def _sync(self, *_args) -> None:
+        self.clear_button.setEnabled(bool(self.field.keys()))
 
     def keys(self) -> list[str]:
         return self.field.keys()
 
     def set_keys(self, names: list[str]) -> None:
         self.field.set_keys(names)
+        self._sync()

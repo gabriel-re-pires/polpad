@@ -145,7 +145,8 @@ class ActionEditorDialog(QDialog):
             form.addRow("Combinação:", page.capture)
             hint = QLabel(
                 "Clique no campo e aperte a combinação no seu teclado, como "
-                "Ctrl+C. Esc cancela. Teclas como F13–F20 ficam em «Mais teclas»."
+                "Ctrl+C. Cada clique soma teclas à combinação; «Limpar» apaga. "
+                "Win e teclas como F13–F20 ficam em «Mais teclas»."
             )
             hint.setWordWrap(True)
             hint.setObjectName("hint")
