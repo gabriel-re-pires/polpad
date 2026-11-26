@@ -65,6 +65,9 @@ class Store:
         self._write_lock = threading.RLock()
         # Segredos que o cofre não deixou ler: vazios, save() não os apaga.
         self._unreadable: set[str] = set()
+        # Motivo para não gravar: o config.json existe mas não foi lido nem
+        # copiado para .bak. Gravar por cima perderia todos os perfis.
+        self._save_blocked: str | None = None
 
     def load(self) -> None:
         """Carrega a configuração, aproveitando o máximo possível.
@@ -73,6 +76,7 @@ class Store:
         ``.json.bak`` se algo se perder. Nunca impede o app de abrir.
         """
         path = self.data_dir / _CONFIG_FILE
+        self._save_blocked = None
         if not path.exists():
             self._create_default()
             return
@@ -80,14 +84,21 @@ class Store:
             # utf-8-sig: o Bloco de Notas grava com BOM. ValueError cobre JSON
             # inválido e texto fora de UTF-8.
             data = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (ValueError, OSError) as exc:
+        except OSError as exc:
+            # Sem permissão, arquivo preso etc.: o conteúdo pode estar intacto.
+            # Abre com o padrão, mas não grava por cima do original.
+            log.error("não foi possível ler %s (%s); nada será gravado", path, exc)
+            self._save_blocked = f"não foi possível ler {path} ({exc})"
+            self._create_default()
+            return
+        except ValueError as exc:
             log.warning("configuração ilegível (%s); recomeçando do padrão", exc)
-            self._backup(path)
+            self._backup_or_block(path)
             self._create_default()
             return
         if not isinstance(data, dict):
             log.warning("configuração não é um objeto JSON; recomeçando do padrão")
-            self._backup(path)
+            self._backup_or_block(path)
             self._create_default()
             return
 
@@ -96,7 +107,7 @@ class Store:
         legado = DisplayConfig.from_legacy_settings(data.get("settings"))
         self.profiles, discarded = _profiles_from_dict(data.get("profiles"), legado)
         if not settings_ok or discarded:
-            self._backup(path)
+            self._backup_or_block(path)
 
         self._load_secrets()
 
@@ -177,16 +188,31 @@ class Store:
                 settings_data[campo] = ""
                 self._unreadable.discard(campo)
 
-    def _backup(self, path: Path) -> None:
-        """Preserva o original antes de sobrescrevê-lo (falha é ignorada)."""
-        with contextlib.suppress(OSError):
+    def _backup_or_block(self, path: Path) -> None:
+        """Preserva o original em ``.json.bak`` antes de sobrescrevê-lo.
+
+        Se nem a cópia der certo, bloqueia o ``save()``: perder o original
+        sem cópia nenhuma é pior que não gravar as mudanças desta sessão.
+        """
+        try:
             shutil.copy(path, path.with_suffix(".json.bak"))
+        except OSError as exc:
+            log.error("sem cópia de segurança de %s (%s); nada será gravado", path, exc)
+            self._save_blocked = f"não foi possível copiar {path} para .bak ({exc})"
 
     def save(self) -> bool:
         """Grava a configuração de forma atômica. ``False`` se não conseguiu.
 
         Roda a cada troca de perfil: falha de disco é só registrada e reportada.
         """
+        if self._save_blocked is not None:
+            log.error("gravação bloqueada: %s", self._save_blocked)
+            if self.on_error is not None:
+                self.on_error(
+                    "as configurações não serão salvas para não sobrescrever o "
+                    f"arquivo original: {self._save_blocked}"
+                )
+            return False
         data: dict[str, Any] = {
             "settings": self.settings.to_dict(),
             "active_profile_id": self.active_profile_id,
@@ -290,13 +316,18 @@ class Store:
         """Acrescenta um perfil lido de arquivo, gravando o ícone que veio junto."""
         profile = importado.profile
         if importado.icon_bytes:
+            destino = self.icons_dir / f"{profile.id}{importado.icon_suffix}"
             try:
                 self.icons_dir.mkdir(parents=True, exist_ok=True)
-                destino = self.icons_dir / f"{profile.id}{importado.icon_suffix}"
                 destino.write_bytes(importado.icon_bytes)
+                # Mesma checagem da escolha manual: uma "bomba" de pixels
+                # travaria a prévia a cada troca de perfil.
+                icons.validar_imagem(destino)
                 profile.icon_path = str(destino)
-            except OSError as exc:
-                log.warning("não foi possível gravar o ícone importado: %s", exc)
+            except Exception as exc:
+                log.warning("ícone importado descartado: %s", exc)
+                with contextlib.suppress(OSError):
+                    destino.unlink(missing_ok=True)
         self.profiles.append(profile)
         self.save()
         return profile
@@ -330,8 +361,13 @@ class Store:
         shutil.copy(source, dest)
         profile.icon_path = str(dest)
         self.save()
-        # Trocar um .png por um .jpg deixava o arquivo antigo órfão.
-        if anterior and Path(anterior) != dest:
+        # Trocar um .png por um .jpg deixava o arquivo antigo órfão. Só apaga
+        # o que está na pasta de ícones do app, nunca um arquivo do usuário.
+        if (
+            anterior
+            and Path(anterior) != dest
+            and Path(anterior).parent.resolve() == self.icons_dir.resolve()
+        ):
             with contextlib.suppress(OSError):
                 Path(anterior).unlink(missing_ok=True)
         return str(dest)

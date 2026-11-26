@@ -22,7 +22,7 @@
 #include <NimBLEHIDDevice.h>
 #endif
 
-constexpr char FW_VERSION[] = "2.1.0";
+constexpr char FW_VERSION[] = "2.1.1";
 
 // KEY_INDEX precisa ter cada tecla 0..KEY_COUNT-1 exatamente uma vez.
 constexpr bool keyIndexIsValid() {
@@ -382,9 +382,16 @@ void handleLine(const char *line) {
   if (type == nullptr) return;
 
   lastHostMessageAt = millis();
-  if (!hostPresent) onHostArrived();
+  bool arrived = false;
+  if (!hostPresent) {
+    onHostArrived();
+    arrived = true;
+  }
 
   if (strcmp(type, "ping") == 0) {
+    // O host pede o hello ao abrir a porta: reabrindo antes do HOST_TIMEOUT_MS
+    // ele não viria, e o host ficava sem a versão e com a tela desatualizada.
+    if (!arrived && (doc["hello"] | false)) sendHello();
     writeSerial("{\"t\":\"pong\"}\n", 13);
   } else if (strcmp(type, "text") == 0) {
     showTextScreen(doc["lines"]);

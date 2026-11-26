@@ -422,8 +422,8 @@ class ProfilePanel(QFrame):
         answer = QMessageBox.warning(
             self,
             "Importar perfil",
-            f"O perfil “{importado.profile.name}” executa comandos ou abre "
-            f"programas nesta máquina:\n\n{linhas}\n\n"
+            f"O perfil “{importado.profile.name}” executa comandos, abre "
+            f"programas ou aciona serviços a partir desta máquina:\n\n{linhas}\n\n"
             "Importe apenas de fontes confiáveis. Continuar?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,

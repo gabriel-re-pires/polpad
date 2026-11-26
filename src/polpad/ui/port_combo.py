@@ -56,6 +56,10 @@ class PortCombo(QComboBox):
             for device, description in ports:
                 label = f"{device} — {description}" if description else device
                 self.addItem(label, device)
+            if selected and selected not in {device for device, _ in ports}:
+                # Porta escolhida sumiu (cabo solto, reinício após gravar): o
+                # enlace continua tentando nela, então a lista também a mostra.
+                self.addItem(f"{selected} — não encontrada", selected)
             self.addItem(self._auto_label, None)
             index = self.findData(selected) if selected else -1
             self.setCurrentIndex(index if index >= 0 else self.count() - 1)

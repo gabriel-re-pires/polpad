@@ -31,8 +31,19 @@ _ALPHA_FRACTION = 0.02
 _PHOTO_COLORS = 48
 
 
+# Bem acima de qualquer ícone razoável; barra imagens que, comprimidas, cabem
+# em poucos KB mas ocupariam centenas de MB ao decodificar.
+_MAX_SIDE = 4096
+
+
 def _open_rgba(path: str | Path) -> Image.Image:
     with Image.open(path) as img:
+        # Image.open só lê o cabeçalho: dá para recusar antes de decodificar.
+        if max(img.size) > _MAX_SIDE:
+            w, h = img.size
+            raise ValueError(
+                f"imagem grande demais ({w}x{h}); o máximo é {_MAX_SIDE} px por lado"
+            )
         img.load()
         return img.convert("RGBA")
 

@@ -155,6 +155,17 @@ class Controller:
         ):
             self.push_display()
 
+    def link_state(self, connected: bool) -> None:
+        """O enlace caiu ou voltou.
+
+        Quadros gerados com o enlace fora foram descartados: sem esquecer o
+        último, eles seriam suprimidos como repetidos e o display ficaria
+        com a tela antiga ao reconectar.
+        """
+        self._last_payload = None
+        if connected:
+            self.push_display()
+
     def push_display(self, force: bool = False) -> None:
         """Envia o quadro do perfil ativo; repetidos são suprimidos, salvo ``force``."""
         # Qualquer quadro normal encerra o ícone da troca de perfil.

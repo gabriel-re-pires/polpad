@@ -20,7 +20,8 @@ exatamente estas mensagens.
 Na busca automática, o host só abre portas com o VID USB da Espressif
 (`0x303A`); portas de outros fabricantes (Arduino, conversores CH340/FTDI…)
 nunca são abertas, para não ocupá-las nem resetar a placa. Ele confirma o
-dispositivo com um handshake: envia `ping` e espera `pong` em até 2 segundos.
+dispositivo com um handshake: envia `{"t":"ping","hello":true}` e espera
+`pong` em até 2 segundos.
 Uma porta que falha 3 handshakes (outra placa ESP32, por exemplo) fica de
 fora até ser desconectada. Uma porta escolhida à mão pelo usuário é tentada
 sempre, seja de que fabricante for.
@@ -29,7 +30,7 @@ sempre, seja de que fabricante for.
 
 | Mensagem | Quando enviar |
 |---|---|
-| `{"t":"hello","fw":"2.0.0","keys":18,"screen":{"w":128,"h":64}}` | ao iniciar e **na primeira mensagem válida após um período sem host** (ver *Heartbeat*). Não a cada `ping`: o host responde a todo `hello` reenviando o quadro do display (~1,4 KB), então `hello` a cada 3 s desperdiçaria o canal. |
+| `{"t":"hello","fw":"2.1.1","keys":18,"screen":{"w":128,"h":64}}` | ao iniciar, **na primeira mensagem válida após um período sem host** (ver *Heartbeat*) e antes do `pong` de um `ping` com `"hello":true` (firmware 2.1.1+). Não a cada `ping` do heartbeat: o host responde a todo `hello` reenviando o quadro do display (~1,4 KB), então `hello` a cada 3 s desperdiçaria o canal. |
 | `{"t":"pong"}` | em resposta a todo `ping` |
 | `{"t":"key","k":0,"e":"down"}` | tecla pressionada (`k` = índice 0–17) |
 | `{"t":"key","k":0,"e":"up"}` | tecla solta |
@@ -62,6 +63,7 @@ enquanto ninguém lia a porta) e descartados.
 | Mensagem | Efeito |
 |---|---|
 | `{"t":"ping"}` | responder `pong` (precedido de `hello` se o host estava ausente); também funciona como *heartbeat* |
+| `{"t":"ping","hello":true}` | o mesmo, mas sempre precedido de `hello`. O host usa no handshake: ao reabrir a porta antes de o firmware dar o host por ausente, sem isto ele ficaria sem a versão do firmware. Firmwares anteriores ao 2.1.1 ignoram o campo. |
 | `{"t":"text","lines":["VS Code"]}` | limpar o display e exibir até 3 linhas centralizadas (fonte 5x7 da Adafruit GFX; 1 linha em tamanho 2, mais de uma em tamanho 1; altura de linha `8*tamanho + 4`; bloco centralizado verticalmente) |
 | `{"t":"img","fmt":"xbm1","d":"<base64>"}` | exibir imagem em tela cheia |
 
@@ -94,8 +96,8 @@ faça o próximo transbordar.
 
 ```
 Firmware                     Host (software)
-   |<------ ping ------------------|   (host encontrou a porta)
-   |------- hello ---------------->|   (primeiro contato após boot/timeout)
+   |<------ ping hello=true -------|   (host encontrou a porta)
+   |------- hello ---------------->|   (o host pediu)
    |------- pong ----------------->|
    |<------ img -------------------|   (tela do perfil ativo)
    |------- key k=4 down --------->|   (host executa a ação da tecla 4)

@@ -85,9 +85,19 @@ class Action:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Action:
+        # Arquivo editado à mão ou importado: um tipo que não é texto quebrava
+        # a busca no registro de ações e impedia o app de abrir.
+        tipo = data["type"]
+        if not isinstance(tipo, str) or not tipo:
+            raise ValueError(f"tipo de ação inválido: {tipo!r}")
+        params = data.get("params", {})
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            raise ValueError(f"parâmetros inválidos para {tipo!r}")
         return cls(
-            type=data["type"],
-            params=dict(data.get("params", {})),
+            type=tipo,
+            params=dict(params),
             label=str(data.get("label", "") or ""),
             short=str(data.get("short", "") or "")[:SHORT_LABEL_MAX],
         )
@@ -229,7 +239,9 @@ class Profile:
         return cls(
             name=name,
             id=data.get("id") or uuid.uuid4().hex,
-            icon_path=data.get("icon_path"),
+            icon_path=(
+                data.get("icon_path") if isinstance(data.get("icon_path"), str) else None
+            ),
             bindings=_bindings_from_dict(data.get("bindings"), name),
             auto_apps=_auto_apps_from_dict(data.get("auto_apps"), name),
             display=display,

@@ -74,6 +74,14 @@ def permission_hint() -> str:
     )
 
 
+def _access_denied(exc: BaseException) -> bool:
+    """Se a falha ao abrir a porta foi acesso negado (porta em uso no Windows)."""
+    if isinstance(exc, PermissionError) or isinstance(exc.__cause__, PermissionError):
+        return True
+    # pyserial no Windows: "could not open port 'COM5': PermissionError(13, ...)".
+    return "PermissionError" in str(exc)
+
+
 def _read_available(ser: Any) -> bytes:
     """Lê o que já chegou, sem esperar juntar mais.
 
@@ -107,6 +115,8 @@ class SerialLink:
         self._thread: threading.Thread | None = None
         self._running = False
         self._write_lock = threading.Lock()
+        # Escrita falhou: a thread de leitura encerra a conexão e reconecta.
+        self._write_failed = False
         # Handshakes sem resposta por porta. No limite, a porta (outra placa
         # ESP32, não o macropad) fica de fora até ser desconectada.
         self._failures: dict[str, int] = {}
@@ -140,7 +150,9 @@ class SerialLink:
             with self._write_lock:
                 ser.write(protocol.encode(message))
         except (serial.SerialException, OSError):
-            self._close()
+            # Quem fecha é a thread de leitura: fechar daqui, no meio de uma
+            # leitura dela, derrubava o pyserial com AttributeError/TypeError.
+            self._write_failed = True
 
     def _run(self) -> None:
         while self._running:
@@ -154,13 +166,20 @@ class SerialLink:
     def _attempt(self, port: str) -> None:
         """Uma tentativa de conexão: abre, faz o handshake e lê até cair."""
         self._announced = False
+        self._write_failed = False
         try:
             self._connect_and_read(port)
         except (serial.SerialException, OSError) as exc:
-            # EACCES no Linux: fora do grupo da porta. Não conta como falha de
-            # handshake, para conectar assim que o acesso for liberado.
-            if exc.errno == errno.EACCES:
+            # Sem acesso à porta: no Linux, fora do grupo dela (EACCES); no
+            # Windows, aberta por outro programa (o pyserial embrulha o
+            # PermissionError numa SerialException sem errno). Não conta como
+            # falha de handshake, para conectar assim que ela for liberada.
+            if exc.errno == errno.EACCES or _access_denied(exc):
                 self._report_denied(port)
+        except Exception:
+            # Qualquer outro erro mataria a thread e o macropad nunca mais
+            # reconectaria: registra e tenta de novo no próximo ciclo.
+            log.exception("erro inesperado no enlace serial em %s", port)
         finally:
             self._close()
             # Falha no handshake não conta como conexão caída.
@@ -235,7 +254,7 @@ class SerialLink:
         for early in pending:
             self._on_message(early)
         last_ping = time.monotonic()
-        while self._running and ser.is_open:
+        while self._running and ser.is_open and not self._write_failed:
             now = time.monotonic()
             if now - last_ping >= self.HEARTBEAT_S:
                 last_ping = now
@@ -261,7 +280,7 @@ class SerialLink:
         O ``hello`` logo antes do ``pong`` é mantido (primeira tela do display).
         """
         with self._write_lock:
-            ser.write(protocol.encode(protocol.msg_ping()))
+            ser.write(protocol.encode(protocol.msg_ping(hello=True)))
         deadline = time.monotonic() + self.HANDSHAKE_TIMEOUT_S
         buffer = b""
         pending: list[dict[str, Any]] = []

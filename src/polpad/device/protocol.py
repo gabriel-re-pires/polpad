@@ -50,8 +50,10 @@ def decode(line: bytes | str) -> dict[str, Any] | None:
     return data
 
 
-def msg_ping() -> dict[str, Any]:
-    return {"t": "ping"}
+def msg_ping(hello: bool = False) -> dict[str, Any]:
+    """``hello``: pede o ``hello`` antes do ``pong`` (firmware 2.1.1+; os
+    anteriores ignoram o campo)."""
+    return {"t": "ping", "hello": True} if hello else {"t": "ping"}
 
 
 def msg_text(lines: list[str]) -> dict[str, Any]:

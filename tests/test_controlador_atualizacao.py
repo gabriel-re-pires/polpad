@@ -687,5 +687,49 @@ class AvisoDeFirmwareTest(Base):
         self.assertFalse(controlador.toast.isVisible())
 
 
+class GravacaoDeFirmwareTest(Base):
+    """A troca de versão fechava o app no meio da gravação do firmware,
+    deixando o macropad sem firmware."""
+
+    def test_atualizar_durante_a_gravacao_espera(self):
+        controlador = self._controlador()
+        controlador.can_switch = lambda: False
+        controlador.check_now(user=False)
+        controlador.toast.action_button.click()
+
+        self.assertEqual(self.processos, [])
+        self.assertEqual(self.saidas, [])
+        # O download não se perde: fica pendente para depois da gravação.
+        self.assertEqual(self._estado().pending.version, "0.5.1")
+        self.assertIsNone(self._estado().switch)
+
+    def test_fim_da_gravacao_oferece_instalar(self):
+        controlador = self._controlador()
+        gravando = [True]
+        controlador.can_switch = lambda: not gravando[0]
+        controlador.check_now(user=False)
+        controlador.toast.action_button.click()
+
+        gravando[0] = False
+        controlador.resume_after_flash()
+        controlador.toast.action_button.click()
+
+        self.assertIn("/ATUALIZACAO", self.processos[0])
+        self.assertEqual(self.saidas, ["sair"])
+
+    def test_instalador_que_nao_abre_desfaz_a_marca(self):
+        controlador = self._controlador()
+
+        def falha(_comando):
+            raise OSError("bloqueado pelo antivírus")
+
+        controlador._launcher = falha
+        controlador.check_now(user=False)
+        controlador.toast.action_button.click()
+
+        self.assertIsNone(self._estado().switch)
+        self.assertEqual(self.saidas, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,9 @@ from .base import ActionContext, ActionError, register
 
 _keyboard = Controller()
 
+#: Teto do intervalo entre passos de macro (ms).
+MACRO_MAX_DELAY_MS = 10_000
+
 
 @register(
     "hotkey",
@@ -40,14 +43,18 @@ def run_hotkey(params: dict[str, Any], ctx: ActionContext) -> None:
     pares = list(zip(resolved, names, strict=True))
     modifiers = [k for k, n in pares if n.lower() in keys.MODIFIERS]
     others = [k for k, n in pares if n.lower() not in keys.MODIFIERS]
-    for mod in modifiers:
-        _keyboard.press(mod)
+    # Só solta o que chegou a ser pressionado; se o segundo modificador
+    # falhar, o primeiro não pode ficar preso.
+    pressed = []
     try:
+        for mod in modifiers:
+            _keyboard.press(mod)
+            pressed.append(mod)
         for key in others:
             _keyboard.press(key)
             _keyboard.release(key)
     finally:
-        for mod in reversed(modifiers):
+        for mod in reversed(pressed):
             _keyboard.release(mod)
 
 
@@ -232,10 +239,17 @@ def run_macro(params: dict[str, Any], ctx: ActionContext) -> None:
     from .base import get
 
     steps: list[dict[str, Any]] = params.get("steps", [])
-    delay_ms = int(params.get("delay_ms", 100))
-    if not steps:
+    try:
+        delay_ms = int(params.get("delay_ms", 100))
+    except (TypeError, ValueError):
+        delay_ms = 100
+    # As ações rodam numa fila só: um intervalo enorme travaria as outras teclas.
+    delay_ms = max(0, min(delay_ms, MACRO_MAX_DELAY_MS))
+    if not isinstance(steps, list) or not steps:
         raise ActionError("macro vazia")
     for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise ActionError(f"passo {i + 1}: formato inválido")
         action_type = get(step.get("type", ""))
         if action_type is None:
             raise ActionError(f"passo {i + 1}: tipo desconhecido {step.get('type')!r}")

@@ -110,6 +110,10 @@ class _CaptureField(QWidget):
         self.update()
 
     def event(self, e) -> bool:
+        if self._listening and e.type() == QEvent.ShortcutOverride:
+            # Sem isto os atalhos da janela (F5, Ctrl+,) venciam a gravação.
+            e.accept()
+            return True
         if self._listening and e.type() == QEvent.KeyPress:
             self._on_press(e)
             return True

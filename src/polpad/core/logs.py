@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import TracebackType
@@ -80,3 +81,19 @@ def _install_excepthook() -> None:
         previous(exc_type, exc, tb)
 
     sys.excepthook = handler
+
+    # Sob pythonw não há stderr: sem isto, a exceção que mata uma thread
+    # (o enlace serial, por exemplo) sumiria sem deixar rastro no log.
+    previous_thread = threading.excepthook
+
+    def thread_handler(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is not SystemExit:
+            nome = args.thread.name if args.thread is not None else "?"
+            logging.getLogger("polpad").critical(
+                "exceção não tratada na thread %s",
+                nome,
+                exc_info=(args.exc_type, args.exc_value, args.exc_traceback),  # type: ignore[arg-type]
+            )
+        previous_thread(args)
+
+    threading.excepthook = thread_handler
