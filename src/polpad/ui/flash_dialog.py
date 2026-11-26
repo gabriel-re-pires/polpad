@@ -10,7 +10,7 @@ import logging
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QCoreApplication, QThread, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -36,6 +36,31 @@ from . import glyphs, style
 from .page import Page
 
 log = logging.getLogger(__name__)
+
+# Consultas que seguiam rodando quando a página fechou. Com a página como pai,
+# o QThread era destruído ainda rodando e o processo abortava (rede lenta e Esc
+# logo ao abrir). Aqui elas terminam sozinhas, sem ninguém para avisar.
+_orphans: set[QThread] = set()
+_waiting_on_quit = False
+
+
+def _adopt(query: _ReleaseQuery) -> None:
+    global _waiting_on_quit
+    for signal in (query.ok, query.failed, query.finished):
+        signal.disconnect()
+    if not _waiting_on_quit:
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(_wait_orphans)
+            _waiting_on_quit = True
+    _orphans.add(query)
+    query.finished.connect(lambda: _orphans.discard(query))
+
+
+def _wait_orphans() -> None:
+    # Ao sair, o interpretador destruiria a thread rodando: espera o timeout.
+    for query in list(_orphans):
+        query.wait()
 
 
 class _ReleaseQuery(QThread):
@@ -265,7 +290,7 @@ class FlashPage(Page):
         self._recheck.setEnabled(False)
         self._release_label.setText("Consultando o GitHub…")
         self._refresh_enabled()
-        query = _ReleaseQuery(self)
+        query = _ReleaseQuery()
         query.ok.connect(self._on_release_found)
         query.failed.connect(self._on_release_failed)
         query.finished.connect(lambda: self._recheck.setEnabled(True))
@@ -469,6 +494,7 @@ class FlashPage(Page):
             )
             return False
         if self._query is not None and self._query.isRunning():
-            self._query.wait(2000)
+            _adopt(self._query)
+            self._query = None
         self._resume_link()
         return True

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..actions import keys
 from ..actions.base import all_types
+from ..actions.builtin import MACRO_MAX_DELAY_MS
 from ..actions.executor import ActionRunner
 from ..core.models import Action
 from .hotkey_capture import HotkeyCapture
@@ -431,6 +432,8 @@ class ActionEditorDialog(QDialog):
             except ValueError:
                 delay = None
                 error = "Intervalo inválido."
+            if delay is not None and delay > MACRO_MAX_DELAY_MS:
+                error = f"Intervalo máximo: {MACRO_MAX_DELAY_MS} ms."
             params = {"steps": list(page.steps), "delay_ms": delay}
         elif name == "home_assistant":
             domain = page.domain_edit.text().strip()

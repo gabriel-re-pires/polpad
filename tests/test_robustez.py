@@ -340,7 +340,7 @@ class TrocaDePerfisTest(unittest.TestCase):
 
     def test_icone_e_gravado_na_pasta_de_dados_ao_importar(self):
         icone = self.dir / "icone.png"
-        icone.write_bytes(b"\x89PNG\r\n\x1a\n conteudo de teste")
+        Image.new("RGB", (32, 32), (255, 255, 255)).save(icone)
         perfil = Profile(name="Com ícone", icon_path=str(icone))
         importado = profile_io.from_json(profile_io.to_json(perfil, str(icone)))
 

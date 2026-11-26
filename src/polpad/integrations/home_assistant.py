@@ -62,4 +62,11 @@ def check_connection(base_url: str, token: str) -> str:
         raise ActionError("token inválido (401)")
     if not response.ok:
         raise ActionError(f"resposta inesperada: {response.status_code}")
-    return response.json().get("message", "OK")
+    # Proxy, página de login ou outro serviço na porta respondem 200 sem JSON.
+    try:
+        corpo = response.json()
+    except ValueError as exc:
+        raise ActionError("o endereço não respondeu como um Home Assistant") from exc
+    if not isinstance(corpo, dict):
+        raise ActionError("o endereço não respondeu como um Home Assistant")
+    return str(corpo.get("message", "OK"))

@@ -35,7 +35,7 @@ class IconPackingTest(unittest.TestCase):
         packed = icons.pack_bits(img)
         self.assertEqual(len(packed), SCREEN_W * SCREEN_H // 8)
         restored = icons.unpack_bits(packed)
-        self.assertEqual(list(img.getdata()), list(restored.getdata()))
+        self.assertEqual(img.tobytes(), restored.tobytes())
 
     def test_payload_is_base64_of_1024_bytes(self):
         img = Image.new("1", (SCREEN_W, SCREEN_H), 255)

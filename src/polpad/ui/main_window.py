@@ -90,6 +90,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1040, 620)
         self._quitting = False
         self._updates: UpdateController | None = None
+        # Gravação do firmware em andamento (a troca de versão espera).
+        self._flashing = False
         self._setup_tray()
 
         root = QWidget()
@@ -379,6 +381,7 @@ class MainWindow(QMainWindow):
 
     def set_update_controller(self, controller: UpdateController) -> None:
         self._updates = controller
+        controller.can_switch = lambda: not self._flashing
         controller.show_page = self._show_version_page
         controller.flash_requested.connect(self._open_flash_from_notice)
         # A placa pode ter respondido antes de o controlador existir.
@@ -439,7 +442,10 @@ class MainWindow(QMainWindow):
 
     def _on_port_denied(self, port: str) -> None:
         """O macropad está ligado, mas o sistema não deixa abrir a porta."""
-        message = f"Sem permissão para abrir {port}."
+        if sys.platform.startswith("linux"):
+            message = f"Sem permissão para abrir {port}."
+        else:
+            message = f"{port} está em uso por outro programa (Monitor Serial?)."
         self._port_combo.setToolTip(message)
         self.statusBar().showMessage(message, 8000)
         if not sys.platform.startswith("linux") or port in self._access_offered:
@@ -533,7 +539,10 @@ class MainWindow(QMainWindow):
         )
 
     def _set_connected(self, connected: bool, port: str) -> None:
+        was_connected = self._connected_port is not None
         self._connected_port = port if connected else None
+        if connected != was_connected:
+            self._core.controller.link_state(connected)
         if not connected:
             # A versão era do dispositivo que saiu.
             self._device_version = None
@@ -789,11 +798,14 @@ class MainWindow(QMainWindow):
             page.deleteLater()
 
     def _on_flash_running(self, running: bool) -> None:
+        self._flashing = running
         # Trocar de porta agora religaria o enlace na porta do esptool.
         self._port_combo.setEnabled(not running)
         if not running:
             # A gravação reinicia o ESP32 e a porta pode mudar de número.
             self._reload_ports()
+            if self._updates is not None:
+                self._updates.resume_after_flash()
 
     def _show_overlay(self, page: QWidget) -> bool:
         """Mostra ``page`` no lugar das colunas; ``False`` se a atual não deixa sair."""

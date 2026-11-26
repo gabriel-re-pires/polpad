@@ -139,6 +139,8 @@ class KeyCap(QAbstractButton):
     def _start_drag(self) -> None:
         hot = self._press_pos
         self._press_pos = None
+        if hot is None:
+            return
         # Sem isso o botão emitiria clicked ao fim do gesto.
         self.setDown(False)
 

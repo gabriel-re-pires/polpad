@@ -53,8 +53,9 @@ polpad = ["ui/assets/*.png", "ui/assets/*.ico"]
 line-length = 90
 target-version = "py311"
 src = ["src", "tests"]
-# Rascunho do artigo: fora do repositório e fora do lint.
-extend-exclude = ["docs/artigo"]
+# Rascunho do artigo: fora do repositório e fora do lint. Os scripts de
+# modelagem das keycaps (hardware/) são CAD avulso, não fazem parte do app.
+extend-exclude = ["docs/artigo", "hardware"]
 
 [tool.ruff.lint]
 select = [

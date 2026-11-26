@@ -324,6 +324,10 @@ def _callback_logger_class() -> type[Any]:
             # O esptool não expõe cancelamento, mas chama o logger a cada bloco.
             event = cls.cancel
             if event is not None and event.is_set():
+                # Uma vez só: o teardown do esptool também chama print() e,
+                # se levantasse de novo, pulava o reset do chip e o fechamento
+                # da porta (a próxima gravação dava "porta ocupada").
+                cls.cancel = None
                 raise FlashCancelledError("Gravação cancelada.")
 
     _logger_class = _CallbackLogger

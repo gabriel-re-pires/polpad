@@ -62,19 +62,33 @@ def _sensitive_targets(tipo: Any, params: Any, profundidade: int = 0) -> list[st
             params.get("command") or params.get("target") or params.get("url") or ""
         )
         return [str(alvo)]
+    if tipo == "home_assistant":
+        # Age na casa de quem importa, com o token dele.
+        servico = f"{params.get('domain', '')}.{params.get('service', '')}"
+        return [f"Home Assistant {servico} {params.get('entity_id') or ''}".strip()]
+    if tipo == "obs" and params.get("operation") == "raw":
+        return [f"OBS, requisição {params.get('request', '')}"]
+    if tipo == "text" and params.get("enter"):
+        # Digitar e confirmar com Enter roda o texto num terminal em foco.
+        return [f"digita e tecla Enter: {str(params.get('text', ''))[:60]}"]
     if tipo != "macro" or profundidade > 5:
         return []
     passos = params.get("steps")
     if not isinstance(passos, list):
         return []
     alvos = []
+    tipos_passos = set()
     for i, passo in enumerate(passos, start=1):
         if not isinstance(passo, dict):
             continue
+        tipos_passos.add(passo.get("type"))
         for alvo in _sensitive_targets(
             passo.get("type"), passo.get("params", {}), profundidade + 1
         ):
             alvos.append(f"macro, passo {i}: {alvo}")
+    if not alvos and {"hotkey", "text"} <= tipos_passos:
+        # Atalho seguido de texto (ex.: Win+R e um comando) também executa algo.
+        alvos.append("macro com atalho seguido de texto digitado")
     return alvos
 
 
@@ -137,8 +151,11 @@ def from_json(texto: str | bytes) -> ImportedProfile:
     nome = bruto.get("name")
     if not isinstance(nome, str) or not nome.strip():
         raise ProfileFileError("o perfil não tem um nome válido")
-    # Id novo: importar duas vezes gera dois perfis.
-    bruto = {**bruto, "id": ""}
+    # Id novo: importar duas vezes gera dois perfis. O ``icon_path`` de um
+    # arquivo de terceiros é descartado: apontaria para qualquer lugar (um
+    # compartilhamento de rede, um documento que a troca de ícone apagaria).
+    bruto = {k: v for k, v in bruto.items() if k != "icon_path"}
+    bruto["id"] = ""
     try:
         profile = Profile.from_dict(bruto)
     except (KeyError, TypeError, ValueError) as exc:

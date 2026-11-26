@@ -81,7 +81,14 @@ def apply_switch(
     st.save(path)
     if platform == "win32":
         log_path = updates_dir(data_dir) / INSTALL_LOG
-        launcher(installer.windows_command(package, log_path, relaunch))
+        try:
+            launcher(installer.windows_command(package, log_path, relaunch))
+        except OSError:
+            # Instalador não abriu (antivírus, arquivo preso): sem desfazer a
+            # marca, a próxima abertura acusaria uma atualização que falhou.
+            st.switch, st.pending = previous
+            st.save(path)
+            raise
         return
     try:
         installer.swap_linux(package, Path(executable))
@@ -286,6 +293,9 @@ class UpdateController(QObject):
         self._page: VersionPage | None = None
         # Mostra a página dentro da janela principal; sem ele, abre como janela própria.
         self.show_page: Callable[[QWidget], None] | None = None
+        # Diz se o Polpad pode fechar agora (a janela responde ``False`` durante
+        # a gravação do firmware: sair no meio deixaria a placa sem firmware).
+        self.can_switch: Callable[[], bool] | None = None
         self._progress = _Progress()
         self._progress.changed.connect(self._on_progress)
 
@@ -508,6 +518,15 @@ class UpdateController(QObject):
         if self._cancel.is_set():
             self._user_update = None
             return
+        if self._switch_blocked():
+            # Guarda o download: "Instalar agora" volta quando a gravação acabar.
+            self._user_update = None
+            path = state_path(self.data_dir)
+            st = UpdateState.load(path)
+            st.pending = Pending(release.version, str(result[0]), result[1])
+            st.save(path)
+            self._refresh_page()
+            return
         self.toast.show_progress("Instalando…")
         try:
             self._apply(release.version, result[0], relaunch=True, sha256=result[1])
@@ -567,16 +586,41 @@ class UpdateController(QObject):
                 return
             log.info("download automático falhou: %s", message)
 
+        # Com progresso: se a pessoa clicar "Atualizar" no meio deste download,
+        # o aviso acompanha em vez de ficar parado em 0%.
         self._runner(
             lambda: installer.prepare(
-                release, self.data_dir, None, self._session, self._cancel.is_set
+                release,
+                self.data_dir,
+                self._progress.changed.emit,
+                self._session,
+                self._cancel.is_set,
             ),
             done,
             failed,
         )
 
+    def _switch_blocked(self) -> bool:
+        """``True`` (e avisa) se sair agora interromperia a gravação do firmware."""
+        if self.can_switch is None or self.can_switch():
+            return False
+        self.toast.show_error(
+            "Termine a gravação do firmware antes de instalar a atualização."
+        )
+        return True
+
+    def resume_after_flash(self) -> None:
+        """Gravação terminou: volta a oferecer a atualização que ficou baixada."""
+        if self._development() or self._switching:
+            return
+        pending = UpdateState.load(state_path(self.data_dir)).pending
+        if pending is not None and Path(pending.path).is_file():
+            self.toast.show_pending(pending.version)
+
     def _install_pending_now(self) -> None:
         if self._development() or self._switching:
+            return
+        if self._switch_blocked():
             return
         pending = UpdateState.load(state_path(self.data_dir)).pending
         if pending is None:
@@ -677,7 +721,21 @@ class UpdateController(QObject):
             self._page.set_view(self.view())
 
     def _restore(self, item: backup.Backup) -> None:
-        backup.restore(self.data_dir, item, self.current, now=self._now())
+        if self._switch_blocked():
+            return
+        try:
+            backup.restore(self.data_dir, item, self.current, now=self._now())
+        except OSError as exc:
+            log.exception("falha ao restaurar a cópia de segurança")
+            # Pode ter ficado pela metade: a memória precisa refletir o disco,
+            # senão o save() da saída gravaria a configuração antiga por cima.
+            self.store.load()
+            QMessageBox.warning(
+                self._parent,
+                APP_NAME,
+                f"Não foi possível restaurar a cópia de segurança: {exc}",
+            )
+            return
         # Ao sair a configuração em memória é gravada: recarrega a restaurada.
         self.store.load()
         self._restart([])
@@ -688,7 +746,16 @@ class UpdateController(QObject):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _linux_install(self) -> None:
-        linux_install.install(Path(self._executable))
+        if self._switch_blocked():
+            return
+        try:
+            linux_install.install(Path(self._executable))
+        except OSError as exc:
+            log.exception("falha ao instalar no menu de aplicativos")
+            QMessageBox.warning(
+                self._parent, APP_NAME, f"Não foi possível instalar o Polpad: {exc}"
+            )
+            return
         self.store.settings.linux_install_prompt = False
         self.store.save()
         self._restart([], executable=str(linux_install.binary_path()))
@@ -829,7 +896,10 @@ class UpdateController(QObject):
             self._dismissed = True
 
     def _on_progress(self, percent: int) -> None:
-        self.toast.show_progress(f"Baixando… {percent}%")
+        # O download automático também informa progresso, mas só aparece
+        # depois que a pessoa pediu a atualização.
+        if self._user_update is not None:
+            self.toast.show_progress(f"Baixando… {percent}%")
 
     def _last_check(self) -> datetime | None:
         raw = UpdateState.load(state_path(self.data_dir)).last_check
